@@ -14,11 +14,11 @@ certs/
 # Generated media
 media/live/*
 !media/live/.gitkeep
-*.m4s
-*.mp4
-*.mpd
-*.m3u8
-*.ts
+media/live/*.m4s
+media/live/*.mp4
+media/live/*.mpd
+media/live/*.m3u8
+media/live/*.ts
 
 # Logs
 logs/

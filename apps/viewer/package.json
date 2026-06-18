@@ -1,0 +1,25 @@
+{
+  "name": "manifestless-live-stream-viewer",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "build": "tsc --noEmit && vite build",
+    "e2e": "playwright test"
+  },
+  "dependencies": {
+    "vite": "latest"
+  },
+  "devDependencies": {
+    "@eslint/js": "latest",
+    "@playwright/test": "latest",
+    "eslint": "latest",
+    "jsdom": "latest",
+    "typescript": "latest",
+    "typescript-eslint": "latest",
+    "vitest": "latest"
+  }
+}
