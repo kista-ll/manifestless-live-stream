@@ -68,18 +68,17 @@ ffmpeg \
   -b:a 128k \
   -ar 48000 \
   -ac 2 \
-  -f dash \
-  -streaming 1 \
-  -use_template 1 \
-  -use_timeline 0 \
-  -seg_duration 1 \
-  -init_seg_name "init.mp4" \
-  -media_seg_name "segment-$Number%06d$.m4s" \
-  -remove_at_exit 0 \
-  /media/live/internal.mpd
+  -f hls \
+  -hls_segment_type fmp4 \
+  -hls_time 1 \
+  -hls_flags independent_segments \
+  -start_number 1 \
+  -hls_fmp4_init_filename "init.mp4" \
+  -hls_segment_filename "segment-%06d.m4s" \
+  /media/live/internal.m3u8
 ```
 
-FFmpegのDASH muxerはfMP4を安定生成するためだけに使用する。生成された`internal.mpd`はサーバ・viewerから参照せず、外部公開しない。実験上「マニフェスト不使用」とは、配信制御・視聴開始・セグメント取得にマニフェストを使わないことを指す。
+FFmpegのHLS fMP4 muxerはfMP4を安定生成するためだけに使用する。生成された`internal.m3u8`はサーバ・viewerから参照せず、外部公開しない。実験上「マニフェスト不使用」とは、配信制御・視聴開始・セグメント取得にマニフェストを使わないことを指す。
 
 Codexは、環境のFFmpegで上記オプションが期待どおり動かない場合、同等のfMP4出力になるコマンドへ調整し、理由を`docs/DECISIONS.md`へ記録する。
 

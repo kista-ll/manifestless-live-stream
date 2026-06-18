@@ -93,3 +93,16 @@ Status: Accepted
 再利用可能な指摘は`docs/CODEX_RULES.md`へ登録する。
 技術選定やトレードオフを含む判断は`docs/DECISIONS.md`へ記録する。
 各ルールには検証方法を含める。
+
+## ADR-013 FFmpeg HLS fMP4 muxerの内部利用
+
+Status: Accepted
+
+Context:
+FFmpeg 8.0.1のDASH muxerでは、audio/videoを同一AdaptationSetへ多重化した単一`init.mp4`として出力できなかった。`id=0,streams=0,1`を指定するとmedia type不一致で失敗し、指定しない場合はaudio/videoが別AdaptationSetとなり、単一SourceBuffer前提の`init.mp4`検証で音声trackを確認できなかった。
+
+Decision:
+Phase 1のsegmenterはFFmpeg HLS muxerの`-hls_segment_type fmp4`を内部利用し、H.264/AACを同一`init.mp4`と1秒`.m4s`へ多重化する。副生成物の`internal.m3u8`はサーバー、viewer、視聴制御、途中参加制御では参照せず、外部公開しない。
+
+Consequences:
+生成器内部にはHLS playlist副生成物が残るが、実験上のマニフェストレス性はWebTransport制御メッセージとPush配信で維持する。`internal.m3u8`、`init.mp4`、`.m4s`は`.gitignore`対象の生成物として扱う。

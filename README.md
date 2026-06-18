@@ -65,3 +65,17 @@ Viewer (TypeScript + MSE)
 - `docs/DECISIONS.md`: 設計判断
 - `docs/CODEX_RULES.md`: 指摘から追加された恒久ルール
 - `docs/FEEDBACK_WORKFLOW.md`: 指摘をルール化する手順
+
+## 現在の検証コマンド
+
+Windows環境ではGNU MakeをPATHに追加してから実行する。
+
+```powershell
+$env:Path = 'C:\Program Files (x86)\GnuWin32\bin;' + $env:Path
+make lint
+make test
+make build
+make e2e
+```
+
+`make e2e`はE2E-001〜008を列挙するが、現時点では実ブラウザWebTransport再生経路が未結線のためskipする。結果は`docs/TEST_RESULTS.md`へ記録する。

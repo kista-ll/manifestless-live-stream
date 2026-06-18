@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
 const root = process.cwd();
@@ -15,7 +15,7 @@ const requiredPaths = [
   "apps/viewer/package.json",
   "apps/viewer/src/main.ts",
   "apps/viewer/tests/phase0.test.ts",
-  "apps/viewer/e2e/phase0.spec.ts",
+  "apps/viewer/e2e/manifestless.spec.ts",
   "compose.yaml",
   "Makefile",
   ".gitignore",
@@ -81,6 +81,16 @@ function runPhase0Checks() {
 function cleanGeneratedArtifacts() {
   for (const path of [
     "apps/viewer/dist",
+    ".mypy_cache",
+    ".ruff_cache",
+    "apps/server/.mypy_cache",
+    "apps/server/.pytest_cache",
+    "apps/server/.ruff_cache",
+    "apps/server/src/manifestless_live_stream_server.egg-info",
+    "apps/server/src/manifestless_server/__pycache__",
+    "apps/server/src/manifestless_server/domain/__pycache__",
+    "apps/server/src/manifestless_server/transport/__pycache__",
+    "apps/server/tests/__pycache__",
     "coverage",
     "htmlcov",
     "playwright-report",
@@ -88,6 +98,26 @@ function cleanGeneratedArtifacts() {
     "tmp",
   ]) {
     rmSync(join(root, path), { force: true, recursive: true });
+  }
+  for (const path of [
+    "media/live/init.mp4",
+    "media/live/internal.m3u8",
+    "media/live/internal.mpd",
+  ]) {
+    rmSync(join(root, path), { force: true });
+  }
+  for (const name of readdirSafe(join(root, "media/live"))) {
+    if (name.endsWith(".m4s") || name.endsWith(".tmp")) {
+      rmSync(join(root, "media/live", name), { force: true });
+    }
+  }
+}
+
+function readdirSafe(path) {
+  try {
+    return readdirSync(path);
+  } catch {
+    return [];
   }
 }
 
