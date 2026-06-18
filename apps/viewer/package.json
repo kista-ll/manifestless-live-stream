@@ -16,6 +16,7 @@
   "devDependencies": {
     "@eslint/js": "latest",
     "@playwright/test": "latest",
+    "@types/node": "latest",
     "eslint": "latest",
     "jsdom": "latest",
     "typescript": "latest",

@@ -9,13 +9,13 @@
 | `make lint` | PASS | Ruff、mypy、ESLint成功 |
 | `make test` | PASS | pytest 26件、Vitest 14件、Phase 1 SRT smoke成功 |
 | `make build` | PASS | Python compile、Vite build、segment ffprobe検証成功 |
-| `make e2e` | PASS / SKIPPED | Playwright E2E-001〜008はWebTransportブラウザ経路未結線のためskip |
+| `npm --prefix apps/viewer run e2e` | PASS / SKIPPED | E2E-001は実ChromiumでPASS。E2E-002〜008は未有効化のためskip |
 
 ## 受入条件 AC-001〜AC-011
 
 | ID | 結果 | 記録 |
 |---|---|---|
-| AC-001 基本再生 | NOT RUN | 実ブラウザWebTransport + MSE再生経路が未結線。E2E-001はskip。 |
+| AC-001 基本再生 | PASS | E2E-001でFFmpeg SRT Caller→FFmpeg SRT Listener/segmenter→Python WebTransport over HTTP/3→Chromium→MSE→video.currentTime増加を確認。 |
 | AC-002 途中参加 | PARTIAL | RingBufferの`latest - 2`開始はpytestで確認。ブラウザ途中参加E2Eは未実施。 |
 | AC-003 10視聴 | PARTIAL | ViewerRegistryの10接続上限はpytestで確認。10ブラウザPLAYINGは未実施。 |
 | AC-004 11人目拒否 | PARTIAL | WebTransport serviceの11人目`capacity_exceeded`はpytestで確認。既存10ブラウザ継続は未実施。 |

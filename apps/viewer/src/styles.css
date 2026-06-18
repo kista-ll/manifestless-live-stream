@@ -21,6 +21,15 @@ h1 {
   margin: 0 0 24px;
 }
 
+video {
+  background: #101418;
+  display: block;
+  height: auto;
+  margin: 0 0 24px;
+  max-width: 720px;
+  width: 100%;
+}
+
 dl {
   display: grid;
   gap: 8px;

@@ -6,6 +6,13 @@ export default defineConfig({
   reporter: [["list"]],
   use: {
     ...devices["Desktop Chrome"],
+    channel: "chrome",
     ignoreHTTPSErrors: true,
+    launchOptions: {
+      args: [
+        "--ignore-certificate-errors",
+        "--enable-features=WebTransportDeveloperMode",
+      ],
+    },
   },
 });
