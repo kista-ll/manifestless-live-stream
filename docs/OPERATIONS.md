@@ -36,6 +36,8 @@ GNU MakeがPATHにない場合:
 $env:Path = 'C:\Program Files (x86)\GnuWin32\bin;' + $env:Path
 ```
 
+これは現在のPowerShellだけに効く一時設定である。`make run`と`make stream-start`を別PowerShellで実行する場合は、それぞれのPowerShellで実行する。
+
 Python 3.13の場所を明示する場合:
 
 ```powershell
@@ -231,6 +233,8 @@ make clean
 $env:Path = 'C:\Program Files (x86)\GnuWin32\bin;' + $env:Path
 make help
 ```
+
+PowerShellを新しく開いた場合、この一時PATH設定は引き継がれない。恒久設定した場合も、反映にはPowerShellを開き直す必要がある。
 
 ### Pythonが`Access is denied`
 

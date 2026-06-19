@@ -47,6 +47,8 @@ PATHを恒久設定する場合:
 )
 ```
 
+恒久設定をしていない場合、この`$env:Path = ...`はPowerShellを開くたびに必要です。`make run`用と`make stream-start`用でPowerShellを2つ開く場合は、両方のPowerShellで実行してください。
+
 ## 初回セットアップ
 
 ```powershell
@@ -102,6 +104,7 @@ curl.exe -s http://127.0.0.1:8000/api/stream
 PowerShell 2つ目:
 
 ```powershell
+$env:Path = 'C:\Program Files (x86)\GnuWin32\bin;' + $env:Path
 make stream-start
 ```
 
@@ -185,6 +188,7 @@ Get-NetUDPEndpoint -LocalPort 9000,4433 -ErrorAction SilentlyContinue
 
 `make: The term 'make' is not recognized`
 : GNU MakeをPATHに追加してください。`$env:Path = 'C:\Program Files (x86)\GnuWin32\bin;' + $env:Path`
+  PowerShellごとの一時設定なので、新しいPowerShellを開いた場合は再度実行してください。恒久設定後はPowerShellを開き直してください。
 
 `Access is denied`でPythonが起動しない
 : 実行できるPython 3.13を指定してください。例: `make PYTHON='C:/path/to/python.exe' bootstrap`
