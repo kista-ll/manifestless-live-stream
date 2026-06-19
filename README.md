@@ -76,7 +76,7 @@ make run
 
 起動されるプロセス:
 
-- Python aioquic WebTransport server: UDP `127.0.0.1:4433`
+- Python aioquic WebTransport server: UDP `0.0.0.0:4433`
 - HTTP管理API: TCP `127.0.0.1:8000`
 - Vite Viewer: `http://127.0.0.1:5173`
 - FFmpeg SRT Listener / segmenter: UDP `0.0.0.0:9000`
@@ -146,7 +146,7 @@ make browser-test-open
 
 `browser-test-open`はPowerShellを閉じるか`Ctrl+C`するまでChromeを開いたままにします。
 
-`browser-test-open`でも同じエラーが出る場合は、`make run`を実行しているPowerShellのログを見てください。ブラウザ接続時に`Negotiated protocol`や`webtransport_session_accepted`が出ない場合、ChromeからUDP `127.0.0.1:4433`のPythonプロセスへQUICパケットが届いていません。Windows Defender Firewall、セキュリティソフト、VPN、または既存プロセスによるUDP 4433の占有を確認してください。
+`browser-test-open`でも同じエラーが出る場合は、`make run`を実行しているPowerShellのログを見てください。ブラウザ接続時に`Negotiated protocol`や`webtransport_session_accepted`が出ない場合、ChromeからUDP `localhost:4433`のPythonプロセスへQUICパケットが届いていません。Windows Defender Firewall、セキュリティソフト、VPN、または既存プロセスによるUDP 4433の占有を確認してください。
 
 ChromeのQUICがポリシーで無効化されている場合も同じ症状になります。`browser-test-open`で開いたChromeのアドレスバーに次を入力し、`QuicAllowed`が`false`や無効状態になっていないか確認してください。
 

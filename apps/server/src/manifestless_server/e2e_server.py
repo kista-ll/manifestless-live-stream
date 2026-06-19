@@ -297,8 +297,9 @@ async def main() -> None:
         "lastError": None,
     }
     configuration = create_quic_configuration(cert_path, key_path)
+    webtransport_host = os.environ.get("WEBTRANSPORT_HOST", "0.0.0.0")
     server: QuicServer = await serve(
-        "127.0.0.1",
+        webtransport_host,
         4433,
         configuration=configuration,
         create_protocol=lambda quic, stream_handler=None: AioquicWebTransportProtocol(
@@ -332,7 +333,7 @@ async def main() -> None:
             init_state=init_state,
         )
     )
-    print(f"WT_READY certHash={cert_hash}", flush=True)
+    print(f"WT_READY certHash={cert_hash} host={webtransport_host} port=4433", flush=True)
     try:
         await asyncio.Future()
     finally:

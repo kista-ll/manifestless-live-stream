@@ -189,7 +189,7 @@ async function main() {
   spawnLogged(npm, ["--prefix", "apps/viewer", "run", "dev", "--", "--host", "127.0.0.1"], "viewer");
   await delay(1000);
 
-  const wtUrl = "https://127.0.0.1:4433/webtransport/live-001";
+  const wtUrl = "https://localhost:4433/webtransport/live-001";
   const viewerUrl = `http://127.0.0.1:5173/?wt=${encodeURIComponent(wtUrl)}&certHash=${encodeURIComponent(certHash)}`;
   console.log("");
   console.log("READY");
