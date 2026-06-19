@@ -84,13 +84,30 @@ make browser-open
 --autoplay-policy=no-user-gesture-required
 ```
 
-`browser-open`でも`QUIC_NETWORK_IDLE_TIMEOUT`が続く場合は、E2Eと同じPlaywright起動経路を使う。
+`browser-open`でも`QUIC_NETWORK_IDLE_TIMEOUT`が続く場合は、E2Eと同じPlaywright起動経路を使う。Chrome画面に「サポートされていないフラグ」と表示される場合があるが、E2Eと同じ起動条件へ合わせるための警告表示である。
 
 ```powershell
 make browser-test-open
 ```
 
 `browser-test-open`で再生できる場合、通常Chrome起動時のプロファイル、既存プロセス、ポリシー、またはセキュリティソフトによるUDP/QUIC制御を疑う。`browser-test-open`でも失敗する場合は、server logにQUIC handshakeが出ているか、UDP 4433が解放されているか、`certHash`が現在のserver証明書と一致しているかを確認する。
+
+`make run`を実行しているPowerShellで、ブラウザ接続時に次のようなログが出ればUDP 4433はサーバへ届いている。
+
+```text
+Negotiated protocol version
+ALPN negotiated protocol h3
+webtransport_session_accepted
+```
+
+これらが出ずにブラウザだけが`QUIC_NETWORK_IDLE_TIMEOUT`になる場合、ChromeからPythonのUDP listenerへパケットが届いていない。次を確認する。
+
+```powershell
+Get-NetUDPEndpoint -LocalPort 4433
+Get-Process python,chrome,msedge -ErrorAction SilentlyContinue
+```
+
+UDP 4433のlistenerが存在しない場合は`make run`を再起動する。listenerがあるのにログが出ない場合は、Windows Defender Firewall、セキュリティソフト、VPN、または企業ポリシーでlocalhost UDP/QUICが遮断されていないか確認する。
 
 ## SRT起動順
 

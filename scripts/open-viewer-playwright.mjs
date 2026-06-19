@@ -26,6 +26,7 @@ const browser = await chromium.launch({
   channel: "chrome",
   headless: false,
   args: [
+    "--ignore-certificate-errors",
     "--enable-features=WebTransportDeveloperMode",
     "--autoplay-policy=no-user-gesture-required",
   ],

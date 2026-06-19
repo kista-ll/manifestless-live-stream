@@ -138,13 +138,15 @@ $env:Path = 'C:\Program Files (x86)\GnuWin32\bin;' + $env:Path
 make browser-open
 ```
 
-それでも`QUIC_NETWORK_IDLE_TIMEOUT`が続く場合は、E2Eと同じPlaywright起動経路でChromeを開き、ブラウザ側の起動条件かネットワーク/サーバ側かを切り分けます。
+それでも`QUIC_NETWORK_IDLE_TIMEOUT`が続く場合は、E2Eと同じPlaywright起動経路でChromeを開き、ブラウザ側の起動条件かネットワーク/サーバ側かを切り分けます。この画面ではChromeが「サポートされていないフラグ」と表示することがありますが、E2Eと同じ起動条件に合わせるための警告表示です。
 
 ```powershell
 make browser-test-open
 ```
 
 `browser-test-open`はPowerShellを閉じるか`Ctrl+C`するまでChromeを開いたままにします。
+
+`browser-test-open`でも同じエラーが出る場合は、`make run`を実行しているPowerShellのログを見てください。ブラウザ接続時に`Negotiated protocol`や`webtransport_session_accepted`が出ない場合、ChromeからUDP `127.0.0.1:4433`のPythonプロセスへQUICパケットが届いていません。Windows Defender Firewall、セキュリティソフト、VPN、または既存プロセスによるUDP 4433の占有を確認してください。
 
 手動で開く場合は、`make run`が表示したViewer URLをChromeで開きます。
 
