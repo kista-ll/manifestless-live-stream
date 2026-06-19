@@ -80,6 +80,7 @@ make browser-open
 
 ```text
 --user-data-dir=tmp/chrome-webtransport-profile
+--enable-quic
 --enable-features=WebTransportDeveloperMode
 --autoplay-policy=no-user-gesture-required
 ```
@@ -108,6 +109,8 @@ Get-Process python,chrome,msedge -ErrorAction SilentlyContinue
 ```
 
 UDP 4433のlistenerが存在しない場合は`make run`を再起動する。listenerがあるのにログが出ない場合は、Windows Defender Firewall、セキュリティソフト、VPN、または企業ポリシーでlocalhost UDP/QUICが遮断されていないか確認する。
+
+ChromeのQUICがポリシーで無効化されている場合も同じ症状になる。`browser-test-open`で開いたChromeのアドレスバーに`chrome://policy`を入力し、`QuicAllowed`が`false`や無効状態になっていないか確認する。
 
 ## SRT起動順
 

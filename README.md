@@ -148,6 +148,12 @@ make browser-test-open
 
 `browser-test-open`でも同じエラーが出る場合は、`make run`を実行しているPowerShellのログを見てください。ブラウザ接続時に`Negotiated protocol`や`webtransport_session_accepted`が出ない場合、ChromeからUDP `127.0.0.1:4433`のPythonプロセスへQUICパケットが届いていません。Windows Defender Firewall、セキュリティソフト、VPN、または既存プロセスによるUDP 4433の占有を確認してください。
 
+ChromeのQUICがポリシーで無効化されている場合も同じ症状になります。`browser-test-open`で開いたChromeのアドレスバーに次を入力し、`QuicAllowed`が`false`や無効状態になっていないか確認してください。
+
+```text
+chrome://policy
+```
+
 手動で開く場合は、`make run`が表示したViewer URLをChromeで開きます。
 
 ```text
