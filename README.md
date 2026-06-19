@@ -131,7 +131,14 @@ curl.exe -s http://127.0.0.1:8000/api/stream
 
 ## ブラウザで視聴
 
-`make run`が表示したViewer URLをChromeで開きます。
+通常起動のChromeではWebTransport開発用フラグが効かず、`ERR_QUIC_PROTOCOL_ERROR.QUIC_NETWORK_IDLE_TIMEOUT`になることがあります。次のコマンドで、専用プロファイルのChromeまたはEdgeをWebTransport用フラグ付きで開きます。
+
+```powershell
+$env:Path = 'C:\Program Files (x86)\GnuWin32\bin;' + $env:Path
+make browser-open
+```
+
+手動で開く場合は、`make run`が表示したViewer URLをChromeで開きます。
 
 ```text
 http://127.0.0.1:5173/?wt=...&certHash=...
@@ -203,7 +210,7 @@ UDP 4433が使用中
 : WebTransport serverが起動できません。`Get-NetUDPEndpoint -LocalPort 4433`で確認してください。
 
 Viewerが`CONNECTING`または`ERROR`のまま
-: `make run`が表示した`certHash`付きURLを使ってください。ChromeまたはEdgeで開いてください。
+: `make browser-open`でWebTransport用フラグ付きの専用ブラウザを開いてください。手動で開く場合は、`make run`が表示した`certHash`付きURLを使ってください。
 
 ingestが`LISTENING`から変わらない
 : `make stream-start`が動いているか、FFmpegがSRT送信できているか確認してください。

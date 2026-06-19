@@ -70,6 +70,22 @@ certs/localhost.key
 
 Chromium Viewerは`serverCertificateHashes`へSHA-256証明書ハッシュを渡す。`make run`が表示する`certHash`付きURLを使う場合、OSの証明書ストアへ信頼登録する必要はない。`certHash`なしで開く場合はWebTransport handshakeに失敗する可能性が高い。
 
+手動起動済みのChrome/EdgeではWebTransport関連フラグが効かず、`ERR_QUIC_PROTOCOL_ERROR.QUIC_NETWORK_IDLE_TIMEOUT`になることがある。視聴確認は専用プロファイルで起動する。
+
+```powershell
+make browser-open
+```
+
+`browser-open`は次のフラグを付けてChromeまたはEdgeを起動する。
+
+```text
+--user-data-dir=tmp/chrome-webtransport-profile
+--ignore-certificate-errors
+--enable-features=WebTransportDeveloperMode
+--origin-to-force-quic-on=127.0.0.1:4433
+--autoplay-policy=no-user-gesture-required
+```
+
 ## SRT起動順
 
 1. `make run`
@@ -271,7 +287,8 @@ Get-NetUDPEndpoint -LocalPort 4433
 ### ViewerがCONNECTINGまたはERRORのまま
 
 - ChromeまたはEdgeで開いているか
-- `make run`が表示した`certHash`付きURLを使っているか
+- まず`make browser-open`で専用プロファイルのブラウザを開いているか
+- 手動で開く場合は`make run`が表示した`certHash`付きURLを使っているか
 - `/api/stream`が`LIVE`か
 - DevTools consoleに`Opening handshake failed`や`QUIC_NETWORK_IDLE_TIMEOUT`がないか
 
