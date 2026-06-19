@@ -1,10 +1,15 @@
 import { X509Certificate, createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { chromium } from "../apps/viewer/node_modules/playwright/index.js";
+import playwright from "../apps/viewer/node_modules/playwright/index.js";
 
 const root = process.cwd();
 const certPath = resolve(root, "certs", "localhost.crt");
+const { chromium } = playwright;
+
+if (chromium === undefined) {
+  throw new Error("Playwright is not available. Run `make bootstrap` first.");
+}
 
 function certificateHash() {
   if (!existsSync(certPath)) {
