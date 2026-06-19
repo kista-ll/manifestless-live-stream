@@ -130,10 +130,12 @@ segment-000002.m4s
 - 再接続後は古いinit segmentとリングバッファを破棄する。
 - 新しいinit segment生成後にStream stateを`LIVE`へ戻す。
 - viewerは新しいMediaSourceを生成して再初期化する。
+- init segmentの識別子は`generation-byteLength-hash`形式とし、同一content hashでも再接続世代を区別する。
+- `INTERRUPTED`中に旧入力由来のmedia segmentが残っても、新しいinit segment検出前には公開しない。
 
 ## 7. 入力検証
 
-`ffprobe`またはFFmpeg stderrから以下を確認する。
+`ffprobe`から以下を確認する。
 
 - video trackが1つ存在する
 - audio trackが1つ存在する
@@ -141,3 +143,12 @@ segment-000002.m4s
 - audio codecがAAC
 - 解像度、fps、sample rateをログへ出す
 - stream copy可能条件を満たすか判定する
+
+最低限、次のエラーコードを区別する。
+
+```text
+VIDEO_TRACK_MISSING
+AUDIO_TRACK_MISSING
+UNSUPPORTED_VIDEO_CODEC
+UNSUPPORTED_AUDIO_CODEC
+```

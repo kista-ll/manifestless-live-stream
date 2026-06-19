@@ -3,9 +3,6 @@ import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from "node:chil
 import { existsSync, readdirSync, rmSync, statSync } from "node:fs";
 import { resolve } from "node:path";
 
-const e2eBlockedReason =
-  "Full WebTransport over HTTP/3 browser playback is not wired in this phase; per AGENTS.md this is reported as E2E not executed, not replaced by unit tests.";
-
 const root = resolve("../..");
 const mediaDir = resolve(root, "media/live");
 const python = process.env.PYTHON ?? "C:/Users/y-aka/AppData/Local/Programs/Python/Python313/python.exe";
@@ -15,6 +12,7 @@ let vite: ChildProcessWithoutNullStreams | null = null;
 let wtServer: ChildProcessWithoutNullStreams | null = null;
 let segmenter: ChildProcessWithoutNullStreams | null = null;
 let caller: ChildProcessWithoutNullStreams | null = null;
+let probeListener: ChildProcessWithoutNullStreams | null = null;
 let certHash = "";
 
 function cleanMedia(): void {
@@ -98,8 +96,17 @@ interface ViewerMetrics {
 interface StreamApiState {
   state: string;
   viewerCount: number;
+  oldestSequence: number | null;
   latestSequence: number | null;
+  segmentCount: number;
   viewerRejectedTotal: number;
+  initSegmentId: string | null;
+  ingest: IngestApiState;
+}
+
+interface IngestApiState {
+  state: string;
+  lastError: { code: string; message: string } | null;
 }
 
 interface PlayerSnapshot {
@@ -119,6 +126,9 @@ interface PlayerSnapshot {
   streamEndedLastSequence: number | null;
   reconnectAttempts: number;
   webTransportSessionCount: number;
+  mediaSourceGeneration: number;
+  initSegmentId: string;
+  discontinuityReason: string;
   latestSequence: number;
   lastReceivedSequence: number | null;
 }
@@ -135,6 +145,18 @@ interface RejectedViewerResult {
 async function startPipeline(options: PipelineOptions = {}): Promise<void> {
   const callerDurationSeconds = options.callerDurationSeconds ?? 30;
   cleanMedia();
+  await startServerAndVite();
+  startSegmenter();
+  await delay(1000);
+  startCaller({ durationSeconds: callerDurationSeconds });
+  await waitFor(
+    () => existsSync(resolve(mediaDir, "init.mp4")) && statSync(resolve(mediaDir, "init.mp4")).size > 0 && mediaSegmentCount() >= 3,
+    15000,
+    "init and media segments",
+  );
+}
+
+async function startServerAndVite(): Promise<void> {
   wtServer = spawnLogged(python, ["-m", "manifestless_server.e2e_server"], "wt");
   await waitFor(() => certHash !== "", 15000, "WebTransport server");
   vite = spawnLogged(npm, ["--prefix", "apps/viewer", "run", "dev", "--", "--host", "127.0.0.1"], "vite");
@@ -146,6 +168,9 @@ async function startPipeline(options: PipelineOptions = {}): Promise<void> {
       return false;
     }
   }, 15000, "Vite dev server");
+}
+
+function startSegmenter(): void {
   segmenter = spawnLogged(
     "ffmpeg",
     [
@@ -210,24 +235,32 @@ async function startPipeline(options: PipelineOptions = {}): Promise<void> {
     ],
     "segmenter",
   );
-  await new Promise((resolve) => setTimeout(resolve, 1000));
-  caller = spawnLogged(
-    "ffmpeg",
-    [
-      "-hide_banner",
-      "-loglevel",
-      "info",
-      "-re",
-      "-f",
-      "lavfi",
-      "-i",
-      "testsrc2=size=1280x720:rate=30",
-      "-f",
-      "lavfi",
-      "-i",
-      "sine=frequency=1000:sample_rate=48000",
-      "-t",
-      String(callerDurationSeconds),
+}
+
+interface CallerOptions {
+  durationSeconds: number;
+  video?: "h264" | "mpeg2" | "none";
+  audio?: "aac" | "mp2" | "none";
+}
+
+function startCaller(options: CallerOptions): void {
+  const video = options.video ?? "h264";
+  const audio = options.audio ?? "aac";
+  const args = [
+    "-hide_banner",
+    "-loglevel",
+    "info",
+    "-re",
+  ];
+  if (video !== "none") {
+    args.push("-f", "lavfi", "-i", "testsrc2=size=1280x720:rate=30");
+  }
+  if (audio !== "none") {
+    args.push("-f", "lavfi", "-i", "sine=frequency=1000:sample_rate=48000");
+  }
+  args.push("-t", String(options.durationSeconds));
+  if (video === "h264") {
+    args.push(
       "-c:v",
       "libx264",
       "-profile:v",
@@ -252,24 +285,36 @@ async function startPipeline(options: PipelineOptions = {}): Promise<void> {
       "30",
       "-sc_threshold",
       "0",
-      "-c:a",
-      "aac",
-      "-b:a",
-      "128k",
-      "-ar",
-      "48000",
-      "-ac",
-      "2",
+    );
+  } else if (video === "mpeg2") {
+    args.push("-c:v", "mpeg2video", "-g", "30", "-b:v", "2M");
+  }
+  if (audio === "aac") {
+    args.push("-c:a", "aac", "-b:a", "128k", "-ar", "48000", "-ac", "2");
+  } else if (audio === "mp2") {
+    args.push("-c:a", "mp2", "-b:a", "128k", "-ar", "48000", "-ac", "2");
+  }
+  args.push("-f", "mpegts", "srt://127.0.0.1:9000?mode=caller&latency=200000&pkt_size=1316");
+  caller = spawnLogged("ffmpeg", args, "caller");
+}
+
+function startProbeListener(): void {
+  probeListener = spawnLogged(
+    "ffmpeg",
+    [
+      "-hide_banner",
+      "-loglevel",
+      "info",
+      "-y",
+      "-i",
+      "srt://0.0.0.0:9000?mode=listener&latency=200000",
+      "-c",
+      "copy",
       "-f",
       "mpegts",
-      "srt://127.0.0.1:9000?mode=caller&latency=200000&pkt_size=1316",
+      resolve(mediaDir, "probe.ts"),
     ],
-    "caller",
-  );
-  await waitFor(
-    () => existsSync(resolve(mediaDir, "init.mp4")) && statSync(resolve(mediaDir, "init.mp4")).size > 0 && mediaSegmentCount() >= 3,
-    15000,
-    "init and media segments",
+    "probe",
   );
 }
 
@@ -309,6 +354,14 @@ async function readStreamApiState(): Promise<StreamApiState> {
   return (await response.json()) as StreamApiState;
 }
 
+async function readIngestApiState(): Promise<IngestApiState> {
+  const response = await fetch("http://127.0.0.1:8000/api/ingest");
+  if (!response.ok) {
+    throw new Error(`ingest API failed: ${response.status}`);
+  }
+  return (await response.json()) as IngestApiState;
+}
+
 async function requestStreamEnd(): Promise<void> {
   const response = await fetch("http://127.0.0.1:8000/api/stream/end", { method: "POST" });
   if (!response.ok) {
@@ -338,6 +391,9 @@ async function readPlayerSnapshot(page: Page): Promise<PlayerSnapshot> {
       streamEndedLastSequence: numberOrNull(element.dataset.streamEndedLastSequence),
       reconnectAttempts: Number(element.dataset.reconnectAttempts ?? "0"),
       webTransportSessionCount: Number(element.dataset.webTransportSessionCount ?? "0"),
+      mediaSourceGeneration: Number(element.dataset.mediaSourceGeneration ?? "0"),
+      initSegmentId: element.dataset.initSegmentId ?? "",
+      discontinuityReason: element.dataset.discontinuityReason ?? "",
       latestSequence: Number(element.dataset.latestSequence),
       lastReceivedSequence: numberOrNull(element.dataset.sequence),
     };
@@ -416,10 +472,12 @@ async function pageAssertionsForAllViewers(handles: ViewerHandle[], durationMs: 
 test.afterEach(async () => {
   await stop(caller);
   await stop(segmenter);
+  await stop(probeListener);
   await stop(vite);
   await stop(wtServer);
   caller = null;
   segmenter = null;
+  probeListener = null;
   vite = null;
   wtServer = null;
   certHash = "";
@@ -817,11 +875,199 @@ test.describe("manifestless live streaming acceptance E2E", () => {
     );
   });
 
-  test("E2E-007 SRT reconnect", () => {
-    test.skip(true, e2eBlockedReason);
+  test("E2E-007 SRT reconnect", async ({ page }) => {
+    test.setTimeout(120000);
+    await startPipeline({ callerDurationSeconds: 90 });
+    await connectViewer(page);
+    const beforeStream = await readStreamApiState();
+    const beforeIngest = await readIngestApiState();
+    const beforeViewer = await readPlayerSnapshot(page);
+    const beforeCurrentTime = await page.locator("video").evaluate((video) => (video as HTMLVideoElement).currentTime);
+    expect(beforeIngest.state).toBe("CONNECTED");
+    expect(beforeStream.state).toBe("LIVE");
+    expect(beforeStream.initSegmentId).toBeTruthy();
+
+    const stoppedAt = Date.now();
+    await stop(caller);
+    caller = null;
+    await expect.poll(async () => (await readIngestApiState()).state, { timeout: 10000 }).toBe("INTERRUPTED");
+    await expect.poll(async () => (await readStreamApiState()).state, { timeout: 10000 }).toBe("INTERRUPTED");
+    const interruptedAt = Date.now();
+    await expect(page.locator("#app")).toHaveAttribute("data-last-control-type", "discontinuity", {
+      timeout: 10000,
+    });
+    const afterInterruptViewer = await readPlayerSnapshot(page);
+
+    await stop(segmenter);
+    segmenter = null;
+    await delay(10000);
+    cleanMedia();
+    const listenerRestartedAt = Date.now();
+    startSegmenter();
+    await delay(1000);
+    const restartedAt = Date.now();
+    startCaller({ durationSeconds: 60 });
+
+    await waitFor(
+      async () => {
+        const state = await readStreamApiState();
+        return state.state === "LIVE" && state.initSegmentId !== null && state.initSegmentId !== beforeStream.initSegmentId;
+      },
+      30000,
+      "reconnected stream live with new init segment",
+    );
+    const reconnectedAt = Date.now();
+    await expect
+      .poll(async () => (await readPlayerSnapshot(page)).mediaSourceGeneration, { timeout: 30000 })
+      .toBeGreaterThan(beforeViewer.mediaSourceGeneration);
+    await expect(page.locator("#player")).toContainText("PLAYING", { timeout: 30000 });
+    const playingAt = Date.now();
+    const afterReconnectStream = await readStreamApiState();
+    const afterReconnectIngest = await readIngestApiState();
+    const afterReconnectViewer = await readPlayerSnapshot(page);
+    const recoveredFirstTime = await page.locator("video").evaluate((video) => (video as HTMLVideoElement).currentTime);
+    await delay(3000);
+    const recoveredSecondTime = await page.locator("video").evaluate((video) => (video as HTMLVideoElement).currentTime);
+    const finalViewer = await readPlayerSnapshot(page);
+
+    expect(afterReconnectIngest.state).toBe("CONNECTED");
+    expect(afterReconnectStream.state).toBe("LIVE");
+    expect(afterReconnectStream.initSegmentId).not.toBe(beforeStream.initSegmentId);
+    expect(afterReconnectStream.oldestSequence).toBe(1);
+    expect(afterReconnectStream.latestSequence).not.toBeNull();
+    expect(afterReconnectViewer.initSegmentId).not.toBe(beforeViewer.initSegmentId);
+    expect(recoveredSecondTime).toBeGreaterThan(recoveredFirstTime + 0.5);
+    expect(finalViewer.latencySeconds).toBeLessThanOrEqual(5);
+
+    console.log(
+      JSON.stringify({
+        e2e: "E2E-007",
+        before: {
+          ingestState: beforeIngest.state,
+          streamState: beforeStream.state,
+          latestSequence: beforeStream.latestSequence,
+          initSegmentId: beforeStream.initSegmentId,
+          currentTime: Number(beforeCurrentTime.toFixed(3)),
+          mediaSourceGeneration: beforeViewer.mediaSourceGeneration,
+          webTransportSessionCount: beforeViewer.webTransportSessionCount,
+        },
+        interrupted: {
+          ingestState: "INTERRUPTED",
+          streamState: "INTERRUPTED",
+          interruptedMs: interruptedAt - stoppedAt,
+          discontinuityReason: afterInterruptViewer.discontinuityReason,
+        },
+        reconnect: {
+          listenerRestartMs: listenerRestartedAt - interruptedAt,
+          callerRestartToConnectedMs: reconnectedAt - restartedAt,
+          initSegmentId: afterReconnectStream.initSegmentId,
+          generation: Number(afterReconnectStream.initSegmentId?.split("-")[0] ?? "0"),
+          oldestSequence: afterReconnectStream.oldestSequence,
+          latestSequence: afterReconnectStream.latestSequence,
+          mediaSourceGeneration: afterReconnectViewer.mediaSourceGeneration,
+          webTransportSessionCount: afterReconnectViewer.webTransportSessionCount,
+          playingRecoveredMs: playingAt - restartedAt,
+          finalLatency: finalViewer.latencySeconds,
+        },
+      }),
+    );
   });
 
-  test("E2E-008 invalid ingest", () => {
-    test.skip(true, e2eBlockedReason);
+  test("E2E-008 invalid ingest", async ({ browser }) => {
+    test.setTimeout(180000);
+    const cases: Array<{
+      name: string;
+      expectedCode: string;
+      video: CallerOptions["video"];
+      audio: CallerOptions["audio"];
+    }> = [
+      { name: "video track missing", expectedCode: "VIDEO_TRACK_MISSING", video: "none", audio: "aac" },
+      { name: "audio track missing", expectedCode: "AUDIO_TRACK_MISSING", video: "h264", audio: "none" },
+      { name: "unsupported video codec", expectedCode: "UNSUPPORTED_VIDEO_CODEC", video: "mpeg2", audio: "aac" },
+      { name: "unsupported audio codec", expectedCode: "UNSUPPORTED_AUDIO_CODEC", video: "h264", audio: "mp2" },
+    ];
+    const results: unknown[] = [];
+    for (const invalidCase of cases) {
+      cleanMedia();
+      await startServerAndVite();
+      startProbeListener();
+      await delay(1000);
+      startCaller({
+        durationSeconds: 4,
+        video: invalidCase.video,
+        audio: invalidCase.audio,
+      });
+      await waitFor(() => existsSync(resolve(mediaDir, "probe.ts")) && statSync(resolve(mediaDir, "probe.ts")).size > 0, 10000, "probe ts");
+      await delay(4500);
+      await stop(caller);
+      caller = null;
+      await stop(probeListener);
+      probeListener = null;
+      await expect.poll(async () => (await readIngestApiState()).state, { timeout: 10000 }).toBe("ERROR");
+      const invalidIngest = await readIngestApiState();
+      const invalidStream = await readStreamApiState();
+      expect(invalidIngest.lastError?.code).toBe(invalidCase.expectedCode);
+      expect(invalidStream.state).toBe("ERROR");
+      expect(invalidStream.segmentCount).toBe(0);
+
+      const invalidContext = await browser.newContext();
+      const invalidPage = await invalidContext.newPage();
+      try {
+        const wt = encodeURIComponent("https://127.0.0.1:4433/webtransport/live-001");
+        await invalidPage.goto(`http://127.0.0.1:5173/?wt=${wt}&certHash=${encodeURIComponent(certHash)}`);
+        await expect(invalidPage.locator("#player")).not.toContainText("PLAYING", { timeout: 3000 });
+      } finally {
+        await invalidContext.close();
+      }
+
+      cleanMedia();
+      startSegmenter();
+      await delay(1000);
+      startCaller({ durationSeconds: 20 });
+      await waitFor(
+        async () => {
+          const state = await readStreamApiState();
+          return state.state === "LIVE" && state.segmentCount >= 3;
+        },
+        20000,
+        "normal recovery stream",
+      );
+      const recoveryContext = await browser.newContext();
+      const recoveryPage = await recoveryContext.newPage();
+      try {
+        await connectViewer(recoveryPage);
+        const recoveryStream = await readStreamApiState();
+        const recoveryIngest = await readIngestApiState();
+        const recoveryPlayer = await readPlayerSnapshot(recoveryPage);
+        expect(recoveryPlayer.player).toBe("PLAYING");
+        results.push({
+          name: invalidCase.name,
+          input: { video: invalidCase.video, audio: invalidCase.audio },
+          errorCode: invalidIngest.lastError?.code,
+          ingestState: invalidIngest.state,
+          streamState: invalidStream.state,
+          lastError: invalidIngest.lastError,
+          segmentCountDuringInvalid: invalidStream.segmentCount,
+          invalidViewerPlaying: false,
+          recovery: {
+            ingestState: recoveryIngest.state,
+            streamState: recoveryStream.state,
+            player: recoveryPlayer.player,
+          },
+        });
+      } finally {
+        await recoveryContext.close();
+      }
+      await stop(caller);
+      await stop(segmenter);
+      await stop(vite);
+      await stop(wtServer);
+      caller = null;
+      segmenter = null;
+      vite = null;
+      wtServer = null;
+      certHash = "";
+    }
+    console.log(JSON.stringify({ e2e: "E2E-008", cases: results }));
   });
 });

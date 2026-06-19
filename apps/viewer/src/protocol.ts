@@ -17,6 +17,7 @@ export type ControlMessage =
       segmentDurationMs: number;
       latestSequence: number;
       startSequence: number;
+      initSegmentId?: string;
       targetLatencyMs: number;
       maxLatencyMs: number;
     }

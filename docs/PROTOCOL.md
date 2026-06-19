@@ -45,10 +45,14 @@ Server -> Client
   "segmentDurationMs": 1000,
   "latestSequence": 120,
   "startSequence": 118,
+  "initSegmentId": "3-1358-6f2510d0dbb2fcf3",
   "targetLatencyMs": 2500,
   "maxLatencyMs": 5000
 }
 ```
+
+`initSegmentId`は、ingest世代番号、init segment byte長、content hashを組み合わせた識別子とする。
+SRT再接続時はcontent hashが同一でも世代番号を増やし、viewerが新しいMediaSourceを作成する判断に使用する。
 
 ### segment_available
 

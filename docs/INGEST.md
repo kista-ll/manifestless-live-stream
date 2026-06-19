@@ -95,6 +95,10 @@ stateDiagram-v2
 8. stream stateをLIVEへ戻す。
 9. viewerはMediaSourceを作り直す。
 
+再接続後の`initSegmentId`は`generation-byteLength-hash`形式とする。FFmpeg設定が同一でinit segmentのcontent hashが同じ場合も、generationを増やして新しいingest sessionとして区別する。
+
+INTERRUPTED中に旧FFmpegプロセスが末尾segmentを書き切った場合、そのsegmentは新しい配信として公開しない。新しいinit segmentを検出してからring bufferを初期化し、media segmentの公開を再開する。
+
 ## 7. Docker
 
 `compose.yaml`で次を公開する。
@@ -121,3 +125,18 @@ ingest_process_exited
 ingest_restarting
 ingest_error
 ```
+
+## 9. 不正入力
+
+入力検証は`ffprobe`でMPEG-TS内のtrackとcodecを確認する。検証完了前の不正入力は正常配信用のinit segment/media segmentとしてring bufferへ登録しない。
+
+検出するエラーコード:
+
+```text
+VIDEO_TRACK_MISSING
+AUDIO_TRACK_MISSING
+UNSUPPORTED_VIDEO_CODEC
+UNSUPPORTED_AUDIO_CODEC
+```
+
+検出時はingest stateとstream stateを`ERROR`または`INTERRUPTED`へ遷移し、`/api/ingest.lastError`へ`code`と`message`を設定する。次の正常なSRT Callerは受け入れ可能でなければならない。

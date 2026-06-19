@@ -55,8 +55,14 @@ let expectedTransportCloseCode: number | null = null;
 let seekCount = 0;
 let webTransportSessionCount = 0;
 let manuallyPaused = false;
+let mediaSourceGeneration = 0;
+let suppressNextPause = false;
 
 videoElement.addEventListener("pause", () => {
+  if (suppressNextPause) {
+    suppressNextPause = false;
+    return;
+  }
   manuallyPaused = true;
 });
 
@@ -122,11 +128,16 @@ async function readStream(readable: ReadableStream<Uint8Array>): Promise<Uint8Ar
 
 async function initializeMse(message: Extract<ControlMessage, { type: "stream_init" }>): Promise<void> {
   const mediaSource = new MediaSource();
+  mediaSourceGeneration += 1;
+  setDataset("mediaSourceGeneration", String(mediaSourceGeneration));
+  manuallyPaused = false;
   videoElement.src = URL.createObjectURL(mediaSource);
   reorderBuffer = new SegmentReorderBuffer();
   reorderBuffer.reset(message.startSequence);
   initAppended = false;
   mseController = null;
+  setDataset("initSegmentId", message.initSegmentId ?? "");
+  delete appRoot.dataset.firstMediaSequence;
   await new Promise<void>((resolve) => {
     mediaSource.addEventListener("sourceopen", () => resolve(), { once: true });
   });
@@ -149,6 +160,7 @@ function appendFrame(frame: BinaryFrame): void {
     mseController.append(frame);
     initAppended = true;
     setDataset("initReceived", "true");
+    setDataset("initPayloadId", segmentId(frame.payload));
     for (const media of pendingMedia.splice(0)) {
       appendFrame(media);
     }
@@ -183,6 +195,19 @@ function handleControl(message: ControlMessage): void {
   } else if (message.type === "stream_ended") {
     setDataset("streamEndedLastSequence", String(message.lastSequence));
     mseController?.endWhenIdle();
+  } else if (message.type === "discontinuity") {
+    setDataset("discontinuityReason", message.reason);
+    setDataset("discontinuityNextSequence", String(message.nextSequence));
+    pendingFramesBeforeInit.splice(0);
+    pendingMedia.splice(0);
+    initAppended = false;
+    reorderBuffer = new SegmentReorderBuffer();
+    mseController = null;
+    videoElement.removeAttribute("src");
+    suppressNextPause = true;
+    videoElement.load();
+    manuallyPaused = false;
+    updateStatus("player", "BUFFERING");
   } else if (message.type === "capacity_exceeded") {
     setDataset("capacityLimit", String(message.limit));
     expectedTransportCloseCode = 0x101;
@@ -192,6 +217,15 @@ function handleControl(message: ControlMessage): void {
   } else if (message.type === "error") {
     updateStatus("error", message.message);
   }
+}
+
+function segmentId(payload: Uint8Array): string {
+  let hash = 2166136261;
+  for (const value of payload) {
+    hash ^= value;
+    hash = Math.imul(hash, 16777619);
+  }
+  return `${payload.byteLength}-${(hash >>> 0).toString(16).padStart(8, "0")}`;
 }
 
 async function start(): Promise<void> {

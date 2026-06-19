@@ -26,6 +26,7 @@ from manifestless_server.protocol import (
     NdjsonDecoder,
     ProtocolError,
     capacity_exceeded,
+    discontinuity,
     encode_binary_frame,
     encode_control_message,
     stream_ended,
@@ -102,11 +103,13 @@ class WebTransportStreamService:
         ring_buffer: SegmentRingBuffer,
         viewers: ViewerRegistry,
         init_segment: bytes | None,
+        init_segment_id: str | None = None,
         metrics: Metrics | None = None,
     ) -> None:
         self._ring_buffer = ring_buffer
         self._viewers = viewers
         self._init_segment = init_segment
+        self._init_segment_id = init_segment_id
         self._metrics = metrics
         self._sessions: dict[str, WebTransportSession] = {}
 
@@ -135,7 +138,11 @@ class WebTransportStreamService:
         if self._init_segment is None:
             self._viewers.remove(session.session_id)
             await session.close(ApplicationCloseCode.STREAM_NOT_READY)
-            raise ProtocolError("init segment is not available")
+            LOGGER.info(
+                "viewer_rejected_stream_not_ready",
+                extra={"session_id": session.session_id, "viewer_count": self._viewers.count},
+            )
+            return None
 
         self._sessions[session.session_id] = session
         start_sequence = self._ring_buffer.start_sequence_for_join()
@@ -144,7 +151,9 @@ class WebTransportStreamService:
             start_sequence = 0
             latest_sequence = 0
 
-        await session.send_control(stream_init(latest_sequence, start_sequence))
+        await session.send_control(
+            stream_init(latest_sequence, start_sequence, self._init_segment_id)
+        )
         await session.send_binary(
             encode_binary_frame(
                 BinaryFrame(
@@ -178,12 +187,50 @@ class WebTransportStreamService:
             await session.close(ApplicationCloseCode.NORMAL_END)
             self.disconnect(session_id)
 
+    async def notify_discontinuity(self, *, reason: str, next_sequence: int) -> None:
+        for session in list(self._sessions.values()):
+            await session.send_control(
+                discontinuity(
+                    reason,
+                    next_sequence,
+                    requires_new_init_segment=True,
+                )
+            )
+
+    async def reinitialize_sessions(self) -> None:
+        if self._init_segment is None:
+            return
+        start_sequence = self._ring_buffer.start_sequence_for_join()
+        latest_sequence = self._ring_buffer.latest_sequence
+        if start_sequence is None or latest_sequence is None:
+            return
+        for session in list(self._sessions.values()):
+            await session.send_control(
+                stream_init(latest_sequence, start_sequence, self._init_segment_id)
+            )
+            await session.send_binary(
+                encode_binary_frame(
+                    BinaryFrame(
+                        frame_type=BinaryFrameType.INIT,
+                        sequence=0,
+                        pts_ms=0,
+                        duration_ms=0,
+                        payload=self._init_segment,
+                    )
+                )
+            )
+
     def disconnect(self, session_id: str) -> None:
         self._sessions.pop(session_id, None)
         self._viewers.remove(session_id)
 
-    def update_init_segment(self, init_segment: bytes | None) -> None:
+    def update_init_segment(
+        self,
+        init_segment: bytes | None,
+        init_segment_id: str | None = None,
+    ) -> None:
         self._init_segment = init_segment
+        self._init_segment_id = init_segment_id
 
     async def _send_segment(self, session: WebTransportSession, segment: Segment) -> None:
         payload = encode_binary_frame(

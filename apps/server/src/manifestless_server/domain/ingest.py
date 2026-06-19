@@ -2,10 +2,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from typing import TypedDict
 
 from manifestless_server.domain.models import IngestState, StreamState
 from manifestless_server.domain.ring_buffer import SegmentRingBuffer
 from manifestless_server.domain.viewer import ViewerRegistry
+
+
+class IngestError(TypedDict):
+    code: str
+    message: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -25,7 +31,7 @@ class IngestManager:
     stream_state: StreamState = StreamState.IDLE
     ingest_session_id: int = 0
     connected_at: datetime | None = None
-    last_error: str | None = None
+    last_error: IngestError | None = None
     ffmpeg_spec: FfmpegProcessSpec | None = None
     events: list[str] = field(default_factory=list)
 
@@ -63,8 +69,8 @@ class IngestManager:
         self.stream_state = StreamState.WAITING_FOR_INGEST
         self.events.append("ingest_restarting")
 
-    def mark_error(self, message: str) -> None:
-        self.last_error = message
+    def mark_error(self, code: str, message: str) -> None:
+        self.last_error = {"code": code, "message": message}
         self.ingest_state = IngestState.ERROR
         self.stream_state = StreamState.ERROR
         self.events.append("ingest_error")

@@ -74,6 +74,22 @@ async def test_eleventh_viewer_is_rejected_with_capacity_exceeded() -> None:
 
 
 @pytest.mark.asyncio
+async def test_viewer_is_rejected_when_stream_is_not_ready() -> None:
+    ring = SegmentRingBuffer()
+    viewers = ViewerRegistry()
+    service = WebTransportStreamService(
+        ring_buffer=ring,
+        viewers=viewers,
+        init_segment=None,
+    )
+    session = InMemoryWebTransportSession(session_id="viewer-1")
+
+    assert await service.connect(session, client_hello("client-1")) is None
+    assert session.close_code is ApplicationCloseCode.STREAM_NOT_READY
+    assert viewers.count == 0
+
+
+@pytest.mark.asyncio
 async def test_stream_end_sends_control_and_closes_sessions() -> None:
     ring = SegmentRingBuffer()
     ring.add(make_segment(1))

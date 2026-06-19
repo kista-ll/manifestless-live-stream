@@ -31,6 +31,7 @@ Response `200`:
   "viewerCount": 3,
   "viewerLimit": 10,
   "initAvailable": true,
+  "initSegmentId": "3-1358-6f2510d0dbb2fcf3",
   "oldestSequence": 93,
   "latestSequence": 122,
   "segmentCount": 30,
@@ -107,6 +108,26 @@ Response `200`:
   "audioCodec": "aac",
   "connectedAt": "2026-06-17T12:00:00Z",
   "lastError": null
+}
+```
+
+不正入力を検出した場合の`lastError`は機械判定可能なobjectとする。
+
+```json
+{
+  "protocol": "srt",
+  "mode": "listener",
+  "listenAddress": "0.0.0.0",
+  "listenPort": 9000,
+  "state": "ERROR",
+  "remoteAddress": null,
+  "videoCodec": null,
+  "audioCodec": null,
+  "connectedAt": null,
+  "lastError": {
+    "code": "AUDIO_TRACK_MISSING",
+    "message": "Audio track is required"
+  }
 }
 ```
 

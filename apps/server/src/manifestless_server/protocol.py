@@ -101,8 +101,12 @@ def validate_client_hello(message: dict[str, Any]) -> None:
         raise ProtocolError("clientId is required")
 
 
-def stream_init(latest_sequence: int, start_sequence: int) -> dict[str, Any]:
-    return {
+def stream_init(
+    latest_sequence: int,
+    start_sequence: int,
+    init_segment_id: str | None = None,
+) -> dict[str, Any]:
+    message = {
         "type": ControlMessageType.STREAM_INIT.value,
         "protocolVersion": PROTOCOL_VERSION,
         "streamId": STREAM_ID,
@@ -113,6 +117,9 @@ def stream_init(latest_sequence: int, start_sequence: int) -> dict[str, Any]:
         "targetLatencyMs": 2500,
         "maxLatencyMs": 5000,
     }
+    if init_segment_id is not None:
+        message["initSegmentId"] = init_segment_id
+    return message
 
 
 def segment_available(sequence: int) -> dict[str, Any]:
