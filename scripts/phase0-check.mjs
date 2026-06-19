@@ -96,6 +96,7 @@ function cleanGeneratedArtifacts() {
     "playwright-report",
     "test-results",
     "tmp",
+    "certs",
   ]) {
     rmSync(join(root, path), { force: true, recursive: true });
   }

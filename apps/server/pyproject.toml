@@ -5,6 +5,7 @@ description = "Experimental manifestless live streaming server."
 requires-python = ">=3.13"
 dependencies = [
   "aioquic",
+  "cryptography",
   "fastapi",
   "uvicorn",
 ]

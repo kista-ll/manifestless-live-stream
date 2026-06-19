@@ -49,6 +49,18 @@ async def handle_api_stream(
     parts = request.decode("ascii", errors="ignore").split(" ")
     method = parts[0] if len(parts) > 0 else ""
     path = parts[1] if len(parts) > 1 else ""
+    if method == "GET" and path == "/api/health":
+        body = b'{"status":"ok"}'
+        writer.write(
+            b"HTTP/1.1 200 OK\r\n"
+            b"content-type: application/json\r\n"
+            + f"content-length: {len(body)}\r\n\r\n".encode("ascii")
+            + body
+        )
+        await writer.drain()
+        writer.close()
+        await writer.wait_closed()
+        return
     if method == "POST" and path == "/api/stream/end":
         stream_state["state"] = "ENDING"
         await stream_service.end_stream()

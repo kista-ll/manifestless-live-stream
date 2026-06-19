@@ -1,168 +1,300 @@
 # 起動・運用手順
 
-## 1. 必要環境
+README.mdは初回利用者向けの正本です。このファイルは詳細な構成確認、障害切り分け、後片付けの補足として扱います。
 
-- Docker DesktopまたはDocker Engine
-- Docker Compose
-- Make
-- ChromeまたはEdge
-- ローカル証明書を信頼登録できる権限
+## プロセス構成
 
-## 2. 初回
+`make run`はローカルで次を起動する。
 
-```bash
-make bootstrap
+| 役割 | プロセス | URL / Port |
+|---|---|---|
+| WebTransport server | `python -m manifestless_server.e2e_server` | UDP `127.0.0.1:4433` |
+| HTTP管理API | 同上 | TCP `127.0.0.1:8000` |
+| Viewer | `npm --prefix apps/viewer run dev -- --host 127.0.0.1` | `http://127.0.0.1:5173` |
+| SRT Listener / segmenter | `ffmpeg` | UDP `0.0.0.0:9000` |
+
+WebTransport endpoint:
+
+```text
+https://127.0.0.1:4433/webtransport/live-001
+```
+
+HTTP API:
+
+```text
+http://127.0.0.1:8000/api/health
+http://127.0.0.1:8000/api/ingest
+http://127.0.0.1:8000/api/stream
+http://127.0.0.1:8000/api/metrics
+```
+
+## Windows手順
+
+GNU MakeがPATHにない場合:
+
+```powershell
+$env:Path = 'C:\Program Files (x86)\GnuWin32\bin;' + $env:Path
+```
+
+Python 3.13の場所を明示する場合:
+
+```powershell
+make PYTHON='C:/Users/y-aka/AppData/Local/Programs/Python/Python313/python.exe' bootstrap
+```
+
+## 証明書
+
+生成方法:
+
+```powershell
 make cert
 ```
 
-生成された証明書をローカルで信頼する。具体的手順はOS別にREADMEへ実装時追記する。
-
-## 3. 起動
-
-```bash
-make run
-```
-
-想定URL:
+実ファイル:
 
 ```text
-Viewer: https://localhost:5173
-API: https://localhost:4433/api/health
-WebTransport: https://localhost:4433/webtransport/live-001
+scripts/generate-cert.py
+scripts/generate-cert.sh
 ```
 
-## 4. SRT Listener起動
+生成物:
 
-`make run`でserverとSRT Listenerを起動する。
-
-確認:
-
-```bash
-curl -k https://localhost:4433/api/ingest
+```text
+certs/localhost.crt
+certs/localhost.key
 ```
 
-`state`が`LISTENING`であることを確認する。
+証明書はECDSA P-256の自己署名証明書で、`manifestless_server.certs.ensure_localhost_cert()`が生成する。`make run`起動時にも、証明書が存在しない、またはECDSAでない場合は再生成される。
 
-## 5. テスト映像開始
+Chromium Viewerは`serverCertificateHashes`へSHA-256証明書ハッシュを渡す。`make run`が表示する`certHash`付きURLを使う場合、OSの証明書ストアへ信頼登録する必要はない。`certHash`なしで開く場合はWebTransport handshakeに失敗する可能性が高い。
 
-別ターミナルからSRT Callerを開始する。
+## SRT起動順
 
-```bash
+1. `make run`
+2. `/api/ingest`が`LISTENING`であることを確認
+3. 別PowerShellで`make stream-start`
+4. `/api/ingest`が`CONNECTED`、`/api/stream`が`LIVE`へ遷移することを確認
+
+SRT Caller URL:
+
+```text
+srt://127.0.0.1:9000?mode=caller&latency=200000&pkt_size=1316
+```
+
+SRT Listener URL:
+
+```text
+srt://0.0.0.0:9000?mode=listener&latency=200000
+```
+
+## API期待状態
+
+起動直後:
+
+```powershell
+curl.exe -s http://127.0.0.1:8000/api/health
+curl.exe -s http://127.0.0.1:8000/api/ingest
+curl.exe -s http://127.0.0.1:8000/api/stream
+```
+
+期待値:
+
+```text
+health.status = ok
+ingest.state = LISTENING
+stream.state = WAITING_FOR_INGEST
+stream.segmentCount = 0
+```
+
+配信開始後:
+
+```text
+ingest.state = CONNECTED
+stream.state = LIVE
+stream.latestSequence = 増加する整数
+stream.segmentCount > 0
+```
+
+配信途絶時:
+
+```text
+ingest.state = INTERRUPTED
+stream.state = INTERRUPTED
+```
+
+不正入力時:
+
+```text
+ingest.state = ERROR
+stream.state = ERROR
+ingest.lastError.code = VIDEO_TRACK_MISSING など
+```
+
+## stream end後の再起動
+
+stream end:
+
+```powershell
+curl.exe -s -X POST http://127.0.0.1:8000/api/stream/end
+```
+
+再起動する場合:
+
+```powershell
+make stream-stop
+make stop
+make clean
+make run
 make stream-start
 ```
 
-Callerは次へ送信する。
+`make run`は起動時に`media/live`内の生成済みmediaを削除するため、古いsegmentを読み込まない。
+
+## ログ確認
+
+`make run`を直接表示しているPowerShellに、server、viewer、segmenterのログがprefix付きで出る。
+
+バックグラウンドで起動している検証時は、次を確認する。
+
+```powershell
+Get-Content tmp/run.log -Tail 80
+Get-Content tmp/run.err.log -Tail 80
+Get-Content tmp/stream.err.log -Tail 80
+```
+
+重要イベント:
 
 ```text
-srt://localhost:9000?mode=caller&latency=200000
+WT_READY certHash=...
+ingest_connected
+segment_registered
+segment_sent
+ingest_disconnected
 ```
 
-## 6. 状態確認
+## 停止
 
-```bash
-curl -k https://localhost:4433/api/stream
-curl -k https://localhost:4433/api/metrics
-```
+テスト入力だけ止める:
 
-## 7. 配信終了
-
-```bash
+```powershell
 make stream-stop
 ```
 
-または:
+プロジェクトのローカルプロセスを止める:
 
-```bash
-curl -k -X POST https://localhost:4433/api/stream/end
+```powershell
+make stop
 ```
 
-## 8. ログ確認
+残プロセス確認:
 
-```bash
-docker compose logs -f server
-docker compose logs -f viewer
-docker compose logs -f segmenter
+```powershell
+Get-Process node,python,ffmpeg -ErrorAction SilentlyContinue
+Get-NetUDPEndpoint -LocalPort 9000,4433 -ErrorAction SilentlyContinue
 ```
 
-必須ログfield:
+必要な場合:
 
-```json
-{
-  "timestamp": "ISO-8601",
-  "level": "INFO",
-  "event": "segment_sent",
-  "sessionId": "uuid",
-  "sequence": 120,
-  "viewerCount": 3,
-  "bytes": 248392
-}
+```powershell
+Stop-Process -Id <PID>
 ```
 
-## 9. 障害切り分け
+## 後片付け
 
-### SRT ingest接続不可
+```powershell
+make clean
+```
 
-確認順:
+削除対象:
 
-1. FFmpegが`--enable-libsrt`でビルドされているか
-2. UDP 9000がlistenされているか
-3. EncoderがCaller、ServerがListenerになっているか
-4. MPEG-TSで送信しているか
-5. H.264 videoとAAC audioが存在するか
-6. Docker利用時にUDP 9000がpublishされているか
-7. ingest FFmpeg stderr
+- `media/live/init.mp4`
+- `media/live/internal.m3u8`
+- `media/live/*.m4s`
+- `media/live/*.tmp`
+- `certs`
+- `tmp`
+- `.mypy_cache`
+- `.ruff_cache`
+- `apps/viewer/dist`
+- `apps/server`と`apps/viewer`配下のテスト・キャッシュ生成物
+- `test-results`
+- `playwright-report`
+- `coverage`
 
-### WebTransport接続不可
+`media/live/.gitkeep`は残る。
 
-確認順:
+## 障害切り分け
 
-1. Chrome/Edgeで開いているか
-2. 証明書が信頼されているか
-3. UDP 4433が利用可能か
-4. HTTP/3 serverが起動しているか
-5. DevTools consoleの接続error
-6. server logのsession作成有無
+### `make`が見つからない
 
-### MSEエラー
+```powershell
+$env:Path = 'C:\Program Files (x86)\GnuWin32\bin;' + $env:Path
+make help
+```
 
-確認順:
+### Pythonが`Access is denied`
 
-1. `MediaSource.isTypeSupported(mimeType)`
-2. init segmentが最初にappendされたか
-3. sequenceが連続しているか
-4. SourceBufferが`updating`中でないか
-5. FFmpeg出力とMIME typeが一致するか
-6. `video.error`のMediaError code
+実行可能なPython 3.13を指定する。
 
-### 再生が遅れる
+```powershell
+make PYTHON='C:/path/to/python.exe' bootstrap
+```
 
-確認順:
+### FFmpegがSRT非対応
 
-1. viewerのlatency表示
-2. viewer queue長
-3. serverのslow consumer log
-4. segment生成間隔
-5. SourceBufferのbuffer range
-6. playbackRateとseek実行履歴
+```powershell
+ffmpeg -protocols | Select-String srt
+```
 
-## 10. 実験結果として記録する値
+何も出ない場合はlibsrt対応ビルドをPATHに入れる。
 
-- 初回再生開始時間
-- 途中参加開始時間
-- 30秒時点の遅延
-- 10 viewer時のserver CPU・memory
-- viewerごとの平均送信bitrate
-- 再接続時間
-- 欠落segment数
-- slow consumer発生数
+### UDP 9000が使用中
 
+```powershell
+Get-NetUDPEndpoint -LocalPort 9000
+```
 
-### SRT再接続後に再生復帰しない
+不要なFFmpegや別アプリを停止する。
 
-確認順:
+### UDP 4433が使用中
 
-1. stream stateがINTERRUPTEDからLIVEへ戻ったか
-2. 新しいinit.mp4が生成されたか
-3. 古いring bufferが破棄されたか
-4. viewerへdiscontinuityが送られたか
-5. viewerがMediaSourceを再生成したか
+```powershell
+Get-NetUDPEndpoint -LocalPort 4433
+```
+
+別のWebTransport serverが残っている場合は`make stop`を実行する。
+
+### ViewerがCONNECTINGまたはERRORのまま
+
+- ChromeまたはEdgeで開いているか
+- `make run`が表示した`certHash`付きURLを使っているか
+- `/api/stream`が`LIVE`か
+- DevTools consoleに`Opening handshake failed`や`QUIC_NETWORK_IDLE_TIMEOUT`がないか
+
+### ingestがLISTENINGから変わらない
+
+- `make stream-start`が実行中か
+- FFmpeg stderrにSRT接続エラーがないか
+- UDP 9000がListenerへ届いているか
+
+### 映像が再生されない
+
+- `media/live/init.mp4`と`segment-*.m4s`が生成されているか
+- `stream.latestSequence`が増加しているか
+- Viewerの`Error`表示を確認
+- ブラウザの自動再生制限により手動再生が必要でないか
+
+## Docker
+
+`compose.yaml`は存在するが、現在の初回起動・E2E検証はローカルプロセスで実施している。READMEの手順ではDockerを使わない。
+
+Dockerで実行する場合は、`.env.example`、証明書mount、UDP 4433/9000 publish、FFmpeg入りイメージの整合確認が別途必要。
+
+## 実装済みE2E結果
+
+`docs/TEST_RESULTS.md`に記録する。直近の期待値:
+
+```text
+make e2e
+8 passed / 0 skipped
+```

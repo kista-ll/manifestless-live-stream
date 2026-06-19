@@ -1,6 +1,6 @@
 # テスト結果
 
-最終更新: 2026-06-19
+最終更新: 2026-06-20
 
 ## コマンド結果
 
@@ -10,6 +10,20 @@
 | `make test` | PASS | pytest 27件、Vitest 15件、Phase 1 SRT smoke成功 |
 | `make build` | PASS | Python compile、Vite build、segment ffprobe検証成功 |
 | `make e2e` | PASS | 実ChromiumでE2E-001〜E2E-008がPASS。8 passed / 0 skipped |
+
+## 初回起動手順検証
+
+2026-06-20にREADMEのPowerShell手順で次を確認した。
+
+| 項目 | 結果 | 記録 |
+|---|---|---|
+| `make help` | PASS | 利用者向けターゲット一覧を表示。 |
+| `make bootstrap` | PASS | Python editable install、`npm ci`、ECDSA P-256 localhost証明書生成が成功。 |
+| `make run` | PASS | WebTransport/API server、Vite Viewer、FFmpeg SRT Listenerが起動。 |
+| 起動直後API | PASS | `/api/health={"status":"ok"}`、`ingest.state=LISTENING`、`stream.state=WAITING_FOR_INGEST`。 |
+| `make stream-start` | PASS | SRT Caller開始後、`ingest.state=CONNECTED`、`stream.state=LIVE`、segment生成を確認。 |
+| ブラウザ視聴 | PASS | Headless Chromeで`Connection=CONNECTED`、`Player=PLAYING`、`sequence=000049`、遅延2.571秒、`video.currentTime`が43.509秒から46.477秒へ増加。 |
+| 停止・後片付け | PASS | `make stream-stop`、`make stop`、`make clean`後、関連node/python/ffmpegプロセスとUDP 9000/4433が残らないことを確認。 |
 
 ## 受入条件 AC-001〜AC-011
 
