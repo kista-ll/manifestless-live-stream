@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 from pathlib import Path
@@ -16,6 +17,52 @@ from manifestless_server.transport.webtransport import (
 )
 
 LOGGER = logging.getLogger("manifestless_server.e2e")
+
+
+async def handle_api_stream(
+    reader: asyncio.StreamReader,
+    writer: asyncio.StreamWriter,
+    *,
+    viewers: ViewerRegistry,
+    ring_buffer: SegmentRingBuffer,
+) -> None:
+    request = await reader.readline()
+    while True:
+        line = await reader.readline()
+        if line in {b"\r\n", b"\n", b""}:
+            break
+    path = request.decode("ascii", errors="ignore").split(" ")[1:2]
+    if path != ["/api/stream"]:
+        body = b'{"error":"not_found"}'
+        writer.write(
+            b"HTTP/1.1 404 Not Found\r\n"
+            b"content-type: application/json\r\n"
+            + f"content-length: {len(body)}\r\n\r\n".encode("ascii")
+            + body
+        )
+        await writer.drain()
+        writer.close()
+        await writer.wait_closed()
+        return
+    body = json.dumps(
+        {
+            "streamId": "live-001",
+            "viewerCount": viewers.count,
+            "viewerLimit": viewers.limit,
+            "oldestSequence": ring_buffer.oldest_sequence,
+            "latestSequence": ring_buffer.latest_sequence,
+            "segmentCount": ring_buffer.segment_count,
+        }
+    ).encode("utf-8")
+    writer.write(
+        b"HTTP/1.1 200 OK\r\n"
+        b"content-type: application/json\r\n"
+        + f"content-length: {len(body)}\r\n\r\n".encode("ascii")
+        + body
+    )
+    await writer.drain()
+    writer.close()
+    await writer.wait_closed()
 
 
 async def watch_media(
@@ -68,6 +115,16 @@ async def main() -> None:
             stream_service=service,
         ),
     )
+    api_server = await asyncio.start_server(
+        lambda reader, writer: handle_api_stream(
+            reader,
+            writer,
+            viewers=viewers,
+            ring_buffer=ring_buffer,
+        ),
+        "127.0.0.1",
+        8000,
+    )
     asyncio.create_task(
         watch_media(media_dir=media_dir, ring_buffer=ring_buffer, stream_service=service)
     )
@@ -76,6 +133,8 @@ async def main() -> None:
         await asyncio.Future()
     finally:
         server.close()
+        api_server.close()
+        await api_server.wait_closed()
 
 
 if __name__ == "__main__":
