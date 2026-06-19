@@ -124,6 +124,7 @@ class WebTransportStreamService:
         viewer = self._viewers.add(session.session_id)
         if viewer is None:
             await session.send_control(capacity_exceeded(self._viewers.limit))
+            await asyncio.sleep(2)
             await session.close(ApplicationCloseCode.CAPACITY_EXCEEDED)
             LOGGER.info(
                 "viewer_rejected",

@@ -25,6 +25,7 @@ async def handle_api_stream(
     *,
     viewers: ViewerRegistry,
     ring_buffer: SegmentRingBuffer,
+    metrics: Metrics,
 ) -> None:
     request = await reader.readline()
     while True:
@@ -52,6 +53,7 @@ async def handle_api_stream(
             "oldestSequence": ring_buffer.oldest_sequence,
             "latestSequence": ring_buffer.latest_sequence,
             "segmentCount": ring_buffer.segment_count,
+            "viewerRejectedTotal": metrics.viewer_rejected_total,
         }
     ).encode("utf-8")
     writer.write(
@@ -121,6 +123,7 @@ async def main() -> None:
             writer,
             viewers=viewers,
             ring_buffer=ring_buffer,
+            metrics=metrics,
         ),
         "127.0.0.1",
         8000,

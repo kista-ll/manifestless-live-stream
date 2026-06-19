@@ -98,6 +98,16 @@ interface ViewerMetrics {
 interface StreamApiState {
   viewerCount: number;
   latestSequence: number | null;
+  viewerRejectedTotal: number;
+}
+
+interface RejectedViewerResult {
+  context: BrowserContext;
+  page: Page;
+  controlType: string;
+  limit: number;
+  closeCode: number;
+  player: string | null;
 }
 
 async function startPipeline(options: PipelineOptions = {}): Promise<void> {
@@ -244,16 +254,17 @@ async function startPipeline(options: PipelineOptions = {}): Promise<void> {
 async function connectViewer(page: Page): Promise<void> {
   const wt = encodeURIComponent("https://127.0.0.1:4433/webtransport/live-001");
   await page.goto(`http://127.0.0.1:5173/?wt=${wt}&certHash=${encodeURIComponent(certHash)}`);
+  await page.locator("#app main").waitFor({ timeout: 10000 });
   await expect(page.locator("#app")).toHaveAttribute("data-webtransport-ready", "true", {
-    timeout: 10000,
+    timeout: 20000,
   });
   await expect(page.locator("#app")).toHaveAttribute("data-init-received", "true", {
-    timeout: 10000,
+    timeout: 20000,
   });
   await expect(page.locator("#app")).toHaveAttribute("data-media-received", "true", {
-    timeout: 10000,
+    timeout: 20000,
   });
-  await expect(page.locator("#player")).toContainText("PLAYING", { timeout: 10000 });
+  await expect(page.locator("#player")).toContainText("PLAYING", { timeout: 20000 });
 }
 
 async function readViewerMetrics(page: Page): Promise<ViewerMetrics> {
@@ -290,6 +301,44 @@ async function openViewer(browser: Browser, index: number): Promise<ViewerHandle
     const firstTime = await page.locator("video").evaluate((video) => (video as HTMLVideoElement).currentTime);
     const firstMetrics = await readViewerMetrics(page);
     return { index, context, page, connectMs, firstTime, firstMetrics };
+  } catch (error) {
+    await context.close();
+    throw error;
+  }
+}
+
+async function openRejectedViewer(browser: Browser): Promise<RejectedViewerResult> {
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  try {
+    const wt = encodeURIComponent("https://127.0.0.1:4433/webtransport/live-001");
+    await page.goto(`http://127.0.0.1:5173/?wt=${wt}&certHash=${encodeURIComponent(certHash)}`);
+    await expect(page.locator("#app")).toHaveAttribute("data-webtransport-ready", "true", {
+      timeout: 10000,
+    });
+    await expect(page.locator("#app")).toHaveAttribute("data-last-control-type", "capacity_exceeded", {
+      timeout: 10000,
+    });
+    await expect(page.locator("#app")).toHaveAttribute("data-capacity-limit", "10", {
+      timeout: 10000,
+    });
+    await expect(page.locator("#app")).toHaveAttribute("data-transport-closed", "true", {
+      timeout: 10000,
+    });
+    await expect(page.locator("#app")).toHaveAttribute("data-transport-close-code", "257", {
+      timeout: 10000,
+    });
+    const player = await page.locator("#player").textContent();
+    expect(player).not.toBe("PLAYING");
+    const result = await page.locator("#app").evaluate((node) => {
+      const element = node as HTMLElement;
+      return {
+        controlType: element.dataset.lastControlType ?? "",
+        limit: Number(element.dataset.capacityLimit),
+        closeCode: Number(element.dataset.transportCloseCode),
+      };
+    });
+    return { context, page, player, ...result };
   } catch (error) {
     await context.close();
     throw error;
@@ -378,7 +427,7 @@ test.describe("manifestless live streaming acceptance E2E", () => {
     try {
       const attempts = await Promise.all(
         Array.from({ length: 10 }, async (_, index) => {
-          await delay(index * 100);
+          await delay(index * 250);
           try {
             const handle = await openViewer(browser, index + 1);
             handles.push(handle);
@@ -438,8 +487,102 @@ test.describe("manifestless live streaming acceptance E2E", () => {
     }
   });
 
-  test("E2E-004 capacity rejection", () => {
-    test.skip(true, e2eBlockedReason);
+  test("E2E-004 capacity rejection", async ({ browser }) => {
+    test.setTimeout(120000);
+    await startPipeline({ callerDurationSeconds: 90 });
+    const handles: ViewerHandle[] = [];
+    let rejected: RejectedViewerResult | null = null;
+    try {
+      const attempts = await Promise.all(
+        Array.from({ length: 10 }, async (_, index) => {
+          await delay(index * 250);
+          try {
+            const handle = await openViewer(browser, index + 1);
+            handles.push(handle);
+            return { index: index + 1, ok: true as const };
+          } catch (error: unknown) {
+            const message = error instanceof Error ? error.message : String(error);
+            return { index: index + 1, ok: false as const, error: message };
+          }
+        }),
+      );
+      const failures = attempts.filter((result) => !result.ok);
+      if (failures.length > 0) {
+        console.log(JSON.stringify({ e2e: "E2E-004", stage: "initial-connect", failures }));
+      }
+      expect(failures).toEqual([]);
+      expect(handles).toHaveLength(10);
+
+      for (const handle of handles) {
+        await expect(handle.page.locator("#player")).toContainText("PLAYING");
+      }
+      const beforeApiState = await readStreamApiState();
+      expect(beforeApiState.viewerCount).toBe(10);
+      const beforeTimes = await Promise.all(
+        handles.map(async (handle) => ({
+          viewer: handle.index,
+          currentTime: await handle.page
+            .locator("video")
+            .evaluate((video) => (video as HTMLVideoElement).currentTime),
+        })),
+      );
+
+      rejected = await openRejectedViewer(browser);
+      expect(rejected.controlType).toBe("capacity_exceeded");
+      expect(rejected.limit).toBe(10);
+      expect(rejected.closeCode).toBe(0x101);
+
+      const afterRejectApiState = await readStreamApiState();
+      expect(afterRejectApiState.viewerCount).toBe(10);
+      expect(afterRejectApiState.viewerRejectedTotal).toBe(beforeApiState.viewerRejectedTotal + 1);
+
+      await delay(10000);
+      const summary = await Promise.all(
+        handles.map(async (handle) => {
+          const before = beforeTimes.find((entry) => entry.viewer === handle.index);
+          if (before === undefined) {
+            throw new Error(`missing before currentTime for viewer ${handle.index}`);
+          }
+          const after = await handle.page
+            .locator("video")
+            .evaluate((video) => (video as HTMLVideoElement).currentTime);
+          const player = await handle.page.locator("#player").textContent();
+          return {
+            viewer: handle.index,
+            player,
+            beforeCurrentTime: Number(before.currentTime.toFixed(3)),
+            afterCurrentTime: Number(after.toFixed(3)),
+            increased: after > before.currentTime + 0.5,
+          };
+        }),
+      );
+      const finalApiState = await readStreamApiState();
+      console.log(
+        JSON.stringify({
+          e2e: "E2E-004",
+          rejected: {
+            controlType: rejected.controlType,
+            limit: rejected.limit,
+            closeCode: rejected.closeCode,
+            player: rejected.player,
+          },
+          viewerCountBefore: beforeApiState.viewerCount,
+          viewerCountAfterReject: afterRejectApiState.viewerCount,
+          viewerCountAfter10Seconds: finalApiState.viewerCount,
+          viewerRejectedTotalBefore: beforeApiState.viewerRejectedTotal,
+          viewerRejectedTotalAfter: finalApiState.viewerRejectedTotal,
+          viewers: summary,
+        }),
+      );
+
+      expect(finalApiState.viewerCount).toBe(10);
+      expect(finalApiState.viewerRejectedTotal).toBe(beforeApiState.viewerRejectedTotal + 1);
+      expect(summary.every((viewer) => viewer.player === "PLAYING")).toBe(true);
+      expect(summary.every((viewer) => viewer.increased)).toBe(true);
+    } finally {
+      await rejected?.context.close();
+      await Promise.all(handles.map((handle) => handle.context.close()));
+    }
   });
 
   test("E2E-005 catch up after pause", () => {

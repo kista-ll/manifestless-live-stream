@@ -1,6 +1,11 @@
+interface WebTransportCloseInfo {
+  readonly closeCode: number;
+  readonly reason: string;
+}
+
 interface WebTransport {
   readonly ready: Promise<void>;
-  readonly closed: Promise<void>;
+  readonly closed: Promise<WebTransportCloseInfo>;
   readonly incomingUnidirectionalStreams: ReadableStream<ReadableStream<Uint8Array>>;
   createBidirectionalStream: () => Promise<{
     readable: ReadableStream<Uint8Array>;

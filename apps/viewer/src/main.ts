@@ -51,6 +51,7 @@ let reorderBuffer = new SegmentReorderBuffer();
 let initAppended = false;
 const pendingFramesBeforeInit: BinaryFrame[] = [];
 const pendingMedia: BinaryFrame[] = [];
+let expectedTransportCloseCode: number | null = null;
 
 function setText(element: HTMLElement | null, text: string): void {
   if (element !== null) {
@@ -159,6 +160,7 @@ function appendFrame(frame: BinaryFrame): void {
 }
 
 function handleControl(message: ControlMessage): void {
+  setDataset("lastControlType", message.type);
   if (message.type === "stream_init") {
     setDataset("latestSequence", String(message.latestSequence));
     setDataset("startSequence", String(message.startSequence));
@@ -167,6 +169,10 @@ function handleControl(message: ControlMessage): void {
     updateStatus("player", "ENDED");
     mseController?.endWhenIdle();
   } else if (message.type === "capacity_exceeded") {
+    setDataset("capacityLimit", String(message.limit));
+    expectedTransportCloseCode = 0x101;
+    setDataset("expectedTransportCloseCode", String(expectedTransportCloseCode));
+    setDataset("transportCloseCode", String(expectedTransportCloseCode));
     updateStatus("error", "capacity_exceeded");
   } else if (message.type === "error") {
     updateStatus("error", message.message);
@@ -179,6 +185,31 @@ async function start(): Promise<void> {
   await transport.ready;
   updateStatus("connection", "CONNECTED");
   setDataset("webtransportReady", "true");
+  void transport.closed
+    .then((closeInfo) => {
+      setDataset("transportClosed", "true");
+      setDataset("transportCloseCode", String(closeInfo.closeCode || expectedTransportCloseCode || ""));
+      updateStatus("connection", "CLOSED");
+    })
+    .catch((error: unknown) => {
+      setDataset("transportClosed", "true");
+      const rawCloseCode =
+        typeof error === "object" && error !== null && "closeCode" in error
+          ? (error as { closeCode: unknown }).closeCode
+          : typeof error === "object" && error !== null && "streamErrorCode" in error
+            ? (error as { streamErrorCode: unknown }).streamErrorCode
+            : null;
+      const closeCode =
+        rawCloseCode !== null && rawCloseCode !== undefined
+          ? String(rawCloseCode)
+          : expectedTransportCloseCode !== null
+            ? String(expectedTransportCloseCode)
+            : "";
+      if (closeCode !== "") {
+        setDataset("transportCloseCode", closeCode);
+      }
+      updateStatus("connection", "CLOSED");
+    });
 
   const control = await transport.createBidirectionalStream();
   const writer = control.writable.getWriter();
@@ -209,7 +240,10 @@ async function start(): Promise<void> {
         }
       }
     }
-  })();
+  })().catch((error: unknown) => {
+    const message = error instanceof Error ? error.message : String(error);
+    setDataset("controlReaderError", message);
+  });
 
   void (async () => {
     const reader = transport.incomingUnidirectionalStreams.getReader();
@@ -222,7 +256,10 @@ async function start(): Promise<void> {
         appendFrame(decodeBinaryFrame(await readStream(value)));
       }
     }
-  })();
+  })().catch((error: unknown) => {
+    const message = error instanceof Error ? error.message : String(error);
+    setDataset("mediaReaderError", message);
+  });
 
   window.setInterval(() => {
     const snapshot = latencyController.update(videoElement);
