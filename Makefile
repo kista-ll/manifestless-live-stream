@@ -1,10 +1,10 @@
-.PHONY: help bootstrap cert lint test build e2e run stream-start stream-stop browser-open stop clean phase0-check
+.PHONY: help bootstrap cert lint test build e2e run stream-start stream-stop browser-open browser-test-open stop clean phase0-check
 
 PYTHON ?= C:/Users/y-aka/AppData/Local/Programs/Python/Python313/python.exe
 NPM ?= C:/Program Files/nodejs/npm.cmd
 
 help:
-	@node -e "for (const line of ['help          Show available targets','bootstrap     Install dependencies and prepare local environment','cert          Generate localhost ECDSA P-256 certificate','run           Start WebTransport/API server, viewer, and SRT listener','stream-start  Start FFmpeg test encoder as SRT Caller','stream-stop   Stop FFmpeg test encoder','browser-open  Open Chrome/Edge with WebTransport flags and cert hash','stop          Stop project server, viewer, segmenter, and test encoder','clean         Remove generated media, certificates, and test artifacts','lint          Run Ruff, mypy, and ESLint','test          Run pytest, Vitest, and segment smoke test','build         Compile server/viewer and verify generated segments when present','e2e           Run Playwright acceptance E2E']) console.log(line)"
+	@node -e "for (const line of ['help               Show available targets','bootstrap          Install dependencies and prepare local environment','cert               Generate localhost ECDSA P-256 certificate','run                Start WebTransport/API server, viewer, and SRT listener','stream-start       Start FFmpeg test encoder as SRT Caller','stream-stop        Stop FFmpeg test encoder','browser-open       Open Chrome/Edge with WebTransport flags and cert hash','browser-test-open  Open Playwright Chrome for WebTransport troubleshooting','stop               Stop project server, viewer, segmenter, and test encoder','clean              Remove generated media, certificates, and test artifacts','lint               Run Ruff, mypy, and ESLint','test               Run pytest, Vitest, and segment smoke test','build              Compile server/viewer and verify generated segments when present','e2e                Run Playwright acceptance E2E']) console.log(line)"
 
 bootstrap:
 	@node scripts/phase0-check.mjs bootstrap
@@ -47,6 +47,9 @@ stream-stop:
 
 browser-open:
 	@node scripts/open-viewer-browser.mjs
+
+browser-test-open:
+	@node scripts/open-viewer-playwright.mjs
 
 stop:
 	@node scripts/stop-processes.mjs

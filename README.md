@@ -131,12 +131,20 @@ curl.exe -s http://127.0.0.1:8000/api/stream
 
 ## ブラウザで視聴
 
-通常起動のChromeではWebTransport開発用フラグが効かず、`ERR_QUIC_PROTOCOL_ERROR.QUIC_NETWORK_IDLE_TIMEOUT`になることがあります。次のコマンドで、専用プロファイルのChromeまたはEdgeをWebTransport用フラグ付きで開きます。
+通常起動のChromeではWebTransport開発用フラグが効かず、`ERR_QUIC_PROTOCOL_ERROR.QUIC_NETWORK_IDLE_TIMEOUT`になることがあります。次のコマンドで、専用プロファイルのChromeまたはEdgeをWebTransport用フラグ付きで開きます。証明書はURL内の`certHash`を使うため、OSへの信頼登録や`--ignore-certificate-errors`は使いません。
 
 ```powershell
 $env:Path = 'C:\Program Files (x86)\GnuWin32\bin;' + $env:Path
 make browser-open
 ```
+
+それでも`QUIC_NETWORK_IDLE_TIMEOUT`が続く場合は、E2Eと同じPlaywright起動経路でChromeを開き、ブラウザ側の起動条件かネットワーク/サーバ側かを切り分けます。
+
+```powershell
+make browser-test-open
+```
+
+`browser-test-open`はPowerShellを閉じるか`Ctrl+C`するまでChromeを開いたままにします。
 
 手動で開く場合は、`make run`が表示したViewer URLをChromeで開きます。
 

@@ -70,7 +70,7 @@ certs/localhost.key
 
 Chromium Viewerは`serverCertificateHashes`へSHA-256証明書ハッシュを渡す。`make run`が表示する`certHash`付きURLを使う場合、OSの証明書ストアへ信頼登録する必要はない。`certHash`なしで開く場合はWebTransport handshakeに失敗する可能性が高い。
 
-手動起動済みのChrome/EdgeではWebTransport関連フラグが効かず、`ERR_QUIC_PROTOCOL_ERROR.QUIC_NETWORK_IDLE_TIMEOUT`になることがある。視聴確認は専用プロファイルで起動する。
+手動起動済みのChrome/EdgeではWebTransport関連フラグが効かず、`ERR_QUIC_PROTOCOL_ERROR.QUIC_NETWORK_IDLE_TIMEOUT`になることがある。視聴確認は専用プロファイルで起動する。証明書はViewer URLの`certHash`を使うため、OSへの信頼登録や`--ignore-certificate-errors`は使わない。
 
 ```powershell
 make browser-open
@@ -80,11 +80,17 @@ make browser-open
 
 ```text
 --user-data-dir=tmp/chrome-webtransport-profile
---ignore-certificate-errors
 --enable-features=WebTransportDeveloperMode
---origin-to-force-quic-on=127.0.0.1:4433
 --autoplay-policy=no-user-gesture-required
 ```
+
+`browser-open`でも`QUIC_NETWORK_IDLE_TIMEOUT`が続く場合は、E2Eと同じPlaywright起動経路を使う。
+
+```powershell
+make browser-test-open
+```
+
+`browser-test-open`で再生できる場合、通常Chrome起動時のプロファイル、既存プロセス、ポリシー、またはセキュリティソフトによるUDP/QUIC制御を疑う。`browser-test-open`でも失敗する場合は、server logにQUIC handshakeが出ているか、UDP 4433が解放されているか、`certHash`が現在のserver証明書と一致しているかを確認する。
 
 ## SRT起動順
 

@@ -39,9 +39,7 @@ mkdirSync(profileDir, { recursive: true });
 
 const args = [
   `--user-data-dir=${profileDir}`,
-  "--ignore-certificate-errors",
   "--enable-features=WebTransportDeveloperMode",
-  "--origin-to-force-quic-on=127.0.0.1:4433",
   "--autoplay-policy=no-user-gesture-required",
   viewerUrl,
 ];
