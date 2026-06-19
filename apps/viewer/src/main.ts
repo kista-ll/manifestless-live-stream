@@ -52,6 +52,17 @@ let initAppended = false;
 const pendingFramesBeforeInit: BinaryFrame[] = [];
 const pendingMedia: BinaryFrame[] = [];
 let expectedTransportCloseCode: number | null = null;
+let seekCount = 0;
+let webTransportSessionCount = 0;
+let manuallyPaused = false;
+
+videoElement.addEventListener("pause", () => {
+  manuallyPaused = true;
+});
+
+videoElement.addEventListener("play", () => {
+  manuallyPaused = false;
+});
 
 function setText(element: HTMLElement | null, text: string): void {
   if (element !== null) {
@@ -119,7 +130,9 @@ async function initializeMse(message: Extract<ControlMessage, { type: "stream_in
   await new Promise<void>((resolve) => {
     mediaSource.addEventListener("sourceopen", () => resolve(), { once: true });
   });
-  mseController = new MseController(mediaSource);
+  mseController = new MseController(mediaSource, () => {
+    updateStatus("player", "ENDED");
+  });
   mseController.initialize(message.mimeType);
   updateStatus("player", "BUFFERING");
   for (const frame of pendingFramesBeforeInit.splice(0)) {
@@ -154,9 +167,11 @@ function appendFrame(frame: BinaryFrame): void {
     updateStatus("sequence", ready.sequence.toString().padStart(6, "0"));
     setDataset("mediaReceived", "true");
   }
-  void videoElement.play().then(() => updateStatus("player", "PLAYING")).catch(() => {
-    updateStatus("player", "BUFFERING");
-  });
+  if (!manuallyPaused) {
+    void videoElement.play().then(() => updateStatus("player", "PLAYING")).catch(() => {
+      updateStatus("player", "BUFFERING");
+    });
+  }
 }
 
 function handleControl(message: ControlMessage): void {
@@ -166,7 +181,7 @@ function handleControl(message: ControlMessage): void {
     setDataset("startSequence", String(message.startSequence));
     void initializeMse(message);
   } else if (message.type === "stream_ended") {
-    updateStatus("player", "ENDED");
+    setDataset("streamEndedLastSequence", String(message.lastSequence));
     mseController?.endWhenIdle();
   } else if (message.type === "capacity_exceeded") {
     setDataset("capacityLimit", String(message.limit));
@@ -182,6 +197,9 @@ function handleControl(message: ControlMessage): void {
 async function start(): Promise<void> {
   updateStatus("connection", "CONNECTING");
   const transport = new WebTransport(webTransportUrl, certOptions());
+  webTransportSessionCount += 1;
+  setDataset("webTransportSessionCount", String(webTransportSessionCount));
+  setDataset("reconnectAttempts", "0");
   await transport.ready;
   updateStatus("connection", "CONNECTED");
   setDataset("webtransportReady", "true");
@@ -264,11 +282,28 @@ async function start(): Promise<void> {
   window.setInterval(() => {
     const snapshot = latencyController.update(videoElement);
     setDataset("latencySeconds", snapshot.latency.toFixed(3));
+    setDataset("liveEdge", snapshot.liveEdge.toFixed(3));
+    setDataset("currentTime", videoElement.currentTime.toFixed(3));
+    setDataset("playbackRate", videoElement.playbackRate.toFixed(3));
     setText(latencyEl, `${snapshot.latency.toFixed(1)}s`);
     if (videoElement.buffered.length > 0) {
       const buffered =
         videoElement.buffered.end(videoElement.buffered.length - 1) - videoElement.currentTime;
+      setDataset("bufferedSeconds", buffered.toFixed(3));
       setText(bufferEl, `${buffered.toFixed(1)}s`);
+    }
+    if (snapshot.seeked && snapshot.seekFrom !== null && snapshot.seekTo !== null) {
+      seekCount += 1;
+      setDataset("seekCount", String(seekCount));
+      setDataset("lastSeekFrom", snapshot.seekFrom.toFixed(3));
+      setDataset("lastSeekTo", snapshot.seekTo.toFixed(3));
+    }
+    const mseSnapshot = mseController?.snapshot();
+    if (mseSnapshot !== undefined) {
+      setDataset("appendQueueLength", String(mseSnapshot.queueLength));
+      setDataset("sourceBufferUpdating", String(mseSnapshot.sourceBufferUpdating));
+      setDataset("mediaSourceReadyState", mseSnapshot.mediaSourceReadyState);
+      setDataset("endOfStreamCalled", String(mseSnapshot.endOfStreamCalled));
     }
   }, 500);
 }

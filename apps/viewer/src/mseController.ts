@@ -22,8 +22,12 @@ export class MseController {
   private sourceBuffer: SourceBufferLike | null = null;
   private readonly operations: Operation[] = [];
   private ended = false;
+  private endOfStreamCalled = false;
 
-  constructor(private readonly mediaSource: MediaSourceLike) {}
+  constructor(
+    private readonly mediaSource: MediaSourceLike,
+    private readonly onEnded: (() => void) | null = null,
+  ) {}
 
   initialize(mimeType: string): void {
     if (!MediaSource.isTypeSupported(mimeType)) {
@@ -60,6 +64,20 @@ export class MseController {
     this.pump();
   }
 
+  snapshot(): {
+    queueLength: number;
+    sourceBufferUpdating: boolean;
+    mediaSourceReadyState: string;
+    endOfStreamCalled: boolean;
+  } {
+    return {
+      queueLength: this.operations.length,
+      sourceBufferUpdating: this.sourceBuffer?.updating ?? false,
+      mediaSourceReadyState: this.mediaSource.readyState,
+      endOfStreamCalled: this.endOfStreamCalled,
+    };
+  }
+
   private pump(): void {
     const sourceBuffer = this.sourceBuffer;
     if (sourceBuffer === null || sourceBuffer.updating) {
@@ -76,7 +94,9 @@ export class MseController {
       sourceBuffer.remove(operation.start, operation.end);
     } else if (this.mediaSource.readyState === "open") {
       this.ended = true;
+      this.endOfStreamCalled = true;
       this.mediaSource.endOfStream();
+      this.onEnded?.();
     }
   }
 

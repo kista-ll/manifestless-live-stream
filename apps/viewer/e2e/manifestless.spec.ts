@@ -96,9 +96,31 @@ interface ViewerMetrics {
 }
 
 interface StreamApiState {
+  state: string;
   viewerCount: number;
   latestSequence: number | null;
   viewerRejectedTotal: number;
+}
+
+interface PlayerSnapshot {
+  currentTime: number;
+  latencySeconds: number;
+  playbackRate: number;
+  bufferedSeconds: number;
+  seekCount: number;
+  lastSeekFrom: number | null;
+  lastSeekTo: number | null;
+  appendQueueLength: number;
+  sourceBufferUpdating: boolean;
+  mediaSourceReadyState: string;
+  endOfStreamCalled: boolean;
+  player: string | null;
+  lastControlType: string;
+  streamEndedLastSequence: number | null;
+  reconnectAttempts: number;
+  webTransportSessionCount: number;
+  latestSequence: number;
+  lastReceivedSequence: number | null;
 }
 
 interface RejectedViewerResult {
@@ -285,6 +307,41 @@ async function readStreamApiState(): Promise<StreamApiState> {
     throw new Error(`stream API failed: ${response.status}`);
   }
   return (await response.json()) as StreamApiState;
+}
+
+async function requestStreamEnd(): Promise<void> {
+  const response = await fetch("http://127.0.0.1:8000/api/stream/end", { method: "POST" });
+  if (!response.ok) {
+    throw new Error(`stream end API failed: ${response.status}`);
+  }
+}
+
+async function readPlayerSnapshot(page: Page): Promise<PlayerSnapshot> {
+  return page.locator("#app").evaluate((node) => {
+    const element = node as HTMLElement;
+    const numberOrNull = (value: string | undefined): number | null =>
+      value === undefined || value === "" ? null : Number(value);
+    return {
+      currentTime: Number(element.dataset.currentTime),
+      latencySeconds: Number(element.dataset.latencySeconds),
+      playbackRate: Number(element.dataset.playbackRate),
+      bufferedSeconds: Number(element.dataset.bufferedSeconds),
+      seekCount: Number(element.dataset.seekCount ?? "0"),
+      lastSeekFrom: numberOrNull(element.dataset.lastSeekFrom),
+      lastSeekTo: numberOrNull(element.dataset.lastSeekTo),
+      appendQueueLength: Number(element.dataset.appendQueueLength ?? "0"),
+      sourceBufferUpdating: element.dataset.sourceBufferUpdating === "true",
+      mediaSourceReadyState: element.dataset.mediaSourceReadyState ?? "",
+      endOfStreamCalled: element.dataset.endOfStreamCalled === "true",
+      player: element.dataset.player ?? null,
+      lastControlType: element.dataset.lastControlType ?? "",
+      streamEndedLastSequence: numberOrNull(element.dataset.streamEndedLastSequence),
+      reconnectAttempts: Number(element.dataset.reconnectAttempts ?? "0"),
+      webTransportSessionCount: Number(element.dataset.webTransportSessionCount ?? "0"),
+      latestSequence: Number(element.dataset.latestSequence),
+      lastReceivedSequence: numberOrNull(element.dataset.sequence),
+    };
+  });
 }
 
 async function delay(ms: number): Promise<void> {
@@ -585,12 +642,179 @@ test.describe("manifestless live streaming acceptance E2E", () => {
     }
   });
 
-  test("E2E-005 catch up after pause", () => {
-    test.skip(true, e2eBlockedReason);
+  test("E2E-005 catch up after pause", async ({ page }) => {
+    test.setTimeout(120000);
+    await startPipeline({ callerDurationSeconds: 80 });
+    await connectViewer(page);
+    await expect(page.locator("#player")).toContainText("PLAYING");
+
+    await page.waitForTimeout(1500);
+    await page.locator("video").evaluate((video) => (video as HTMLVideoElement).pause());
+    await expect
+      .poll(
+        async () => {
+          const snapshot = await readPlayerSnapshot(page);
+          return snapshot.latencySeconds > 3 && snapshot.latencySeconds <= 5;
+        },
+        { timeout: 6000 },
+      )
+      .toBe(true);
+    await page.locator("video").evaluate(async (video) => {
+      await (video as HTMLVideoElement).play();
+    });
+    let catchUpRateSnapshot: PlayerSnapshot | null = null;
+    await expect
+      .poll(
+        async () => {
+          const snapshot = await readPlayerSnapshot(page);
+          if (
+            snapshot.latencySeconds > 3 &&
+            snapshot.latencySeconds <= 5 &&
+            Math.abs(snapshot.playbackRate - 1.05) < 0.01
+          ) {
+            catchUpRateSnapshot = snapshot;
+            return true;
+          }
+          return false;
+        },
+        { timeout: 5000 },
+      )
+      .toBe(true);
+
+    const beforePause = await readPlayerSnapshot(page);
+    await page.locator("video").evaluate((video) => (video as HTMLVideoElement).pause());
+    await page.waitForTimeout(10000);
+    const afterPause = await readPlayerSnapshot(page);
+    const seekCountBeforeResume = afterPause.seekCount;
+    const currentTimeBeforeResume = await page
+      .locator("video")
+      .evaluate((video) => (video as HTMLVideoElement).currentTime);
+
+    expect(afterPause.currentTime).toBeLessThanOrEqual(beforePause.currentTime + 1);
+    expect(afterPause.latencySeconds).toBeGreaterThan(beforePause.latencySeconds + 5);
+
+    await page.locator("video").evaluate(async (video) => {
+      await (video as HTMLVideoElement).play();
+    });
+    const resumedAt = Date.now();
+
+    await expect.poll(async () => (await readPlayerSnapshot(page)).seekCount, { timeout: 10000 }).toBeGreaterThan(
+      seekCountBeforeResume,
+    );
+    const afterSeek = await readPlayerSnapshot(page);
+    expect(afterSeek.lastSeekFrom).not.toBeNull();
+    expect(afterSeek.lastSeekTo).not.toBeNull();
+    expect(afterSeek.lastSeekFrom ?? 0).toBeLessThanOrEqual(currentTimeBeforeResume + 1);
+    expect(afterSeek.lastSeekTo ?? 0).toBeGreaterThan(afterSeek.lastSeekFrom ?? 0);
+
+    await expect.poll(async () => (await readPlayerSnapshot(page)).latencySeconds, { timeout: 30000 }).toBeLessThanOrEqual(
+      5,
+    );
+    await expect.poll(async () => (await readPlayerSnapshot(page)).playbackRate, { timeout: 30000 }).toBe(1);
+    const caughtUpAt = Date.now();
+    const finalSnapshot = await readPlayerSnapshot(page);
+    const finalCurrentTime = await page.locator("video").evaluate((video) => (video as HTMLVideoElement).currentTime);
+
+    expect(finalCurrentTime).toBeGreaterThan(afterSeek.currentTime + 0.5);
+    expect(finalSnapshot.player).toBe("PLAYING");
+
+    console.log(
+      JSON.stringify({
+        e2e: "E2E-005",
+        beforePause: {
+          currentTime: Number(beforePause.currentTime.toFixed(3)),
+          latency: Number(beforePause.latencySeconds.toFixed(3)),
+        },
+        afterPause: {
+          currentTime: Number(afterPause.currentTime.toFixed(3)),
+          latency: Number(afterPause.latencySeconds.toFixed(3)),
+        },
+        resume: {
+          playbackRate: Number(afterSeek.playbackRate.toFixed(3)),
+          currentTimeBeforeResume: Number(currentTimeBeforeResume.toFixed(3)),
+        },
+        seek: {
+          executed: afterSeek.seekCount > seekCountBeforeResume,
+          from: afterSeek.lastSeekFrom,
+          to: afterSeek.lastSeekTo,
+        },
+        catchUpRate: catchUpRateSnapshot,
+        caughtUpMs: caughtUpAt - resumedAt,
+        final: {
+          currentTime: Number(finalCurrentTime.toFixed(3)),
+          latency: Number(finalSnapshot.latencySeconds.toFixed(3)),
+          playbackRate: Number(finalSnapshot.playbackRate.toFixed(3)),
+          player: finalSnapshot.player,
+        },
+      }),
+    );
   });
 
-  test("E2E-006 stream end", () => {
-    test.skip(true, e2eBlockedReason);
+  test("E2E-006 stream end", async ({ page }) => {
+    test.setTimeout(90000);
+    await startPipeline({ callerDurationSeconds: 80 });
+    await connectViewer(page);
+    const beforeEnd = await readPlayerSnapshot(page);
+    const beforeApi = await readStreamApiState();
+    expect(beforeEnd.player).toBe("PLAYING");
+    expect(beforeApi.viewerCount).toBe(1);
+
+    const endedAt = Date.now();
+    await requestStreamEnd();
+    await expect(page.locator("#app")).toHaveAttribute("data-last-control-type", "stream_ended", {
+      timeout: 10000,
+    });
+    const streamEnded = await readPlayerSnapshot(page);
+    expect(streamEnded.streamEndedLastSequence).not.toBeNull();
+
+    await expect.poll(async () => (await readPlayerSnapshot(page)).appendQueueLength, { timeout: 10000 }).toBe(0);
+    await expect.poll(async () => (await readPlayerSnapshot(page)).sourceBufferUpdating, { timeout: 10000 }).toBe(false);
+    await expect.poll(async () => (await readPlayerSnapshot(page)).endOfStreamCalled, { timeout: 10000 }).toBe(true);
+    await expect.poll(async () => (await readPlayerSnapshot(page)).mediaSourceReadyState, { timeout: 10000 }).toBe("ended");
+    await expect(page.locator("#player")).toContainText("ENDED", { timeout: 10000 });
+    const finalAtEnd = await readPlayerSnapshot(page);
+    const endedMs = Date.now() - endedAt;
+
+    await expect.poll(async () => (await readStreamApiState()).viewerCount, { timeout: 10000 }).toBe(0);
+    const afterApi = await readStreamApiState();
+    expect(afterApi.state).toBe("ENDED");
+
+    await page.waitForTimeout(15000);
+    const after15Seconds = await readPlayerSnapshot(page);
+    const after15Api = await readStreamApiState();
+    expect(after15Seconds.reconnectAttempts).toBe(0);
+    expect(after15Seconds.webTransportSessionCount).toBe(beforeEnd.webTransportSessionCount);
+    expect(after15Seconds.player).toBe("ENDED");
+    expect(after15Api.viewerCount).toBe(0);
+    expect(after15Api.state).toBe("ENDED");
+
+    console.log(
+      JSON.stringify({
+        e2e: "E2E-006",
+        beforeEnd: {
+          player: beforeEnd.player,
+          viewerCount: beforeApi.viewerCount,
+          sessionCount: beforeEnd.webTransportSessionCount,
+        },
+        streamEnded: {
+          lastSequence: streamEnded.streamEndedLastSequence,
+          lastReceivedSequence: finalAtEnd.lastReceivedSequence,
+        },
+        queue: {
+          appendQueueLength: finalAtEnd.appendQueueLength,
+          sourceBufferUpdating: finalAtEnd.sourceBufferUpdating,
+        },
+        mediaSourceReadyState: finalAtEnd.mediaSourceReadyState,
+        endedMs,
+        reconnectAttemptsAfter15Seconds: after15Seconds.reconnectAttempts,
+        webTransportSessionCountAfter15Seconds: after15Seconds.webTransportSessionCount,
+        afterEnd: {
+          viewerCount: after15Api.viewerCount,
+          state: after15Api.state,
+          player: after15Seconds.player,
+        },
+      }),
+    );
   });
 
   test("E2E-007 SRT reconnect", () => {

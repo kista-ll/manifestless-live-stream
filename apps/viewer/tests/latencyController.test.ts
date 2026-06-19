@@ -22,6 +22,7 @@ function video(currentTime: number, liveEdge: number): VideoLike {
   return {
     currentTime,
     playbackRate: 1.0,
+    paused: false,
     buffered: new FakeTimeRanges([[0, liveEdge]]),
   };
 }
@@ -49,6 +50,18 @@ describe("LatencyController", () => {
 
     new LatencyController().update(target);
 
+    expect(target.playbackRate).toBe(1.0);
+  });
+
+  it("does not seek while playback is paused", () => {
+    const target = video(1, 10);
+    target.paused = true;
+
+    const snapshot = new LatencyController().update(target);
+
+    expect(snapshot.latency).toBe(9);
+    expect(snapshot.seeked).toBe(false);
+    expect(target.currentTime).toBe(1);
     expect(target.playbackRate).toBe(1.0);
   });
 });

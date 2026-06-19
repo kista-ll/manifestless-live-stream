@@ -26,14 +26,33 @@ async def handle_api_stream(
     viewers: ViewerRegistry,
     ring_buffer: SegmentRingBuffer,
     metrics: Metrics,
+    stream_service: WebTransportStreamService,
+    stream_state: dict[str, str],
 ) -> None:
     request = await reader.readline()
     while True:
         line = await reader.readline()
         if line in {b"\r\n", b"\n", b""}:
             break
-    path = request.decode("ascii", errors="ignore").split(" ")[1:2]
-    if path != ["/api/stream"]:
+    parts = request.decode("ascii", errors="ignore").split(" ")
+    method = parts[0] if len(parts) > 0 else ""
+    path = parts[1] if len(parts) > 1 else ""
+    if method == "POST" and path == "/api/stream/end":
+        stream_state["state"] = "ENDING"
+        await stream_service.end_stream()
+        stream_state["state"] = "ENDED"
+        body = b'{"accepted":true}'
+        writer.write(
+            b"HTTP/1.1 202 Accepted\r\n"
+            b"content-type: application/json\r\n"
+            + f"content-length: {len(body)}\r\n\r\n".encode("ascii")
+            + body
+        )
+        await writer.drain()
+        writer.close()
+        await writer.wait_closed()
+        return
+    if method != "GET" or path != "/api/stream":
         body = b'{"error":"not_found"}'
         writer.write(
             b"HTTP/1.1 404 Not Found\r\n"
@@ -48,6 +67,7 @@ async def handle_api_stream(
     body = json.dumps(
         {
             "streamId": "live-001",
+            "state": stream_state["state"],
             "viewerCount": viewers.count,
             "viewerLimit": viewers.limit,
             "oldestSequence": ring_buffer.oldest_sequence,
@@ -106,6 +126,7 @@ async def main() -> None:
         init_segment=init_segment,
         metrics=metrics,
     )
+    stream_state = {"state": "LIVE"}
     configuration = create_quic_configuration(cert_path, key_path)
     server: QuicServer = await serve(
         "127.0.0.1",
@@ -124,6 +145,8 @@ async def main() -> None:
             viewers=viewers,
             ring_buffer=ring_buffer,
             metrics=metrics,
+            stream_service=service,
+            stream_state=stream_state,
         ),
         "127.0.0.1",
         8000,
