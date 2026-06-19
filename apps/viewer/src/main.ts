@@ -147,6 +147,9 @@ function appendFrame(frame: BinaryFrame): void {
   const result = reorderBuffer.push(frame, performance.now());
   for (const ready of result.ready) {
     mseController.append(ready);
+    if (appRoot.dataset.firstMediaSequence === undefined) {
+      setDataset("firstMediaSequence", String(ready.sequence));
+    }
     updateStatus("sequence", ready.sequence.toString().padStart(6, "0"));
     setDataset("mediaReceived", "true");
   }
@@ -157,6 +160,8 @@ function appendFrame(frame: BinaryFrame): void {
 
 function handleControl(message: ControlMessage): void {
   if (message.type === "stream_init") {
+    setDataset("latestSequence", String(message.latestSequence));
+    setDataset("startSequence", String(message.startSequence));
     void initializeMse(message);
   } else if (message.type === "stream_ended") {
     updateStatus("player", "ENDED");
@@ -221,6 +226,7 @@ async function start(): Promise<void> {
 
   window.setInterval(() => {
     const snapshot = latencyController.update(videoElement);
+    setDataset("latencySeconds", snapshot.latency.toFixed(3));
     setText(latencyEl, `${snapshot.latency.toFixed(1)}s`);
     if (videoElement.buffered.length > 0) {
       const buffered =
